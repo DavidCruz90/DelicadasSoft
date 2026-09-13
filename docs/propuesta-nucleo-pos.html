@@ -203,7 +203,7 @@ td code{white-space:nowrap}
     <p class="lede">Pedidos por mesa, caja, stock y cocina opcional, funcionando en la red WiFi del local desde una sola carpeta en la PC de caja.</p>
   </div>
   <div class="meta">
-    <div><b>Fecha</b> 12 sep 2026</div>
+    <div><b>Fecha</b> 13 sep 2026</div>
     <div><b>Estado</b> para revisión del propietario</div>
     <div><b>Siguen</b> Menú digital · Facturación SRI · Wallet</div>
   </div>
@@ -245,7 +245,7 @@ td code{white-space:nowrap}
     <div><div class="k">Dispositivos</div><div class="v">Varios, en red local. Servidor en la PC de caja con Windows.</div></div>
     <div><div class="k">Usuarios</div><div class="v">Sin login. El mesero elige su nombre de una lista que admin define.</div></div>
     <div><div class="k">Stock</div><div class="v">Por producto. Cada producto decide si controla stock. En cero se bloquea.</div></div>
-    <div><div class="k">Cobro</div><div class="v">Efectivo, tarjeta, transferencia. Cuenta dividida. Descuento y propina.</div></div>
+    <div><div class="k">Cobro</div><div class="v">Efectivo, tarjeta, transferencia, combinables. Cuenta dividida por ítems al cobrar, con cliente y ticket por persona.</div></div>
     <div><div class="k">Ticket</div><div class="v">Imprimible desde el navegador, 80 mm o A4. Térmica más adelante.</div></div>
     <div><div class="k">Cocina</div><div class="v">Opcional e informativa. Pendiente y Listo. Nada depende de ella.</div></div>
     <div><div class="k">Jornada</div><div class="v">Apertura y cierre de caja explícitos con arqueo de efectivo.</div></div>
@@ -303,21 +303,22 @@ td code{white-space:nowrap}
     <tr><td>producto</td><td>Ítems del menú con o sin stock</td><td>categoria_id, nombre, precio, foto, activo, controla_stock, stock_actual</td></tr>
     <tr><td>movimiento_stock</td><td>Cada cambio de stock con su motivo</td><td>producto_id, cantidad, stock_resultante, origen (venta, anulacion, ajuste_manual, apertura), motivo</td></tr>
     <tr><td>jornada</td><td>Apertura, cierre y totales congelados</td><td>abierta_en, cerrada_en, fondo_inicial, efectivo_contado, total_*, efectivo_esperado, diferencia_efectivo</td></tr>
-    <tr><td>pedido</td><td>Una cuenta por mesa</td><td>jornada_id, numero_mesa (0 = para llevar), mesero_id, cliente_id, estado (abierto, cobrado, anulado), descuento, propina</td></tr>
+    <tr><td>pedido</td><td>Lo que pidió una mesa</td><td>jornada_id, numero_mesa (0 = para llevar), mesero_id, estado (abierto, cobrado, anulado), notas</td></tr>
+    <tr><td>cuenta</td><td>Quién paga qué. Nace una por pedido; caja crea más solo al dividir</td><td>pedido_id, numero, cliente_id, descuento, propina, estado (abierta, cobrada)</td></tr>
     <tr><td>ronda</td><td>Cada envío de ítems dentro del pedido</td><td>pedido_id, numero, origen (mesero, caja), enviada_a_cocina, estado (pendiente, lista)</td></tr>
-    <tr><td>pedido_item</td><td>Línea del pedido con precio copiado</td><td>ronda_id, producto_id, nombre_producto, precio_unitario, cantidad, nota, anulado, motivo_anulacion</td></tr>
-    <tr><td>pago</td><td>Uno o varios por pedido</td><td>pedido_id, metodo (efectivo, tarjeta, transferencia), monto, referencia</td></tr>
+    <tr><td>pedido_item</td><td>Línea del pedido con precio copiado, asignada a una cuenta</td><td>ronda_id, cuenta_id, producto_id, nombre_producto, precio_unitario, cantidad, nota, anulado, motivo_anulacion</td></tr>
+    <tr><td>pago</td><td>Uno o varios por cuenta, con métodos distintos</td><td>cuenta_id, metodo (efectivo, tarjeta, transferencia), monto, referencia</td></tr>
     <tr><td>egreso</td><td>Salidas de dinero de la jornada</td><td>jornada_id, tipo (compra_ingredientes, devolucion_cliente, otro), monto, motivo, pedido_id</td></tr>
-    <tr><td>cliente</td><td>Datos listos para facturar después</td><td>nombre, tipo_identificacion (cedula, ruc, pasaporte, consumidor_final), identificacion, correo, telefono, direccion</td></tr>
+    <tr><td>cliente</td><td>Datos listos para facturar después, uno por cuenta</td><td>nombre, tipo_identificacion (cedula, ruc, pasaporte, consumidor_final), identificacion, correo, telefono, direccion</td></tr>
   </table></div>
 
-  <h3>Cómo se calcula un pedido</h3>
-  <div class="ticket" style="max-width:100%;width:auto;box-shadow:none;background:var(--paper-2)">subtotal  = Σ precio_unitario × cantidad   (ítems no anulados)
+  <h3>Cómo se calcula una cuenta</h3>
+  <div class="ticket" style="max-width:100%;width:auto;box-shadow:none;background:var(--paper-2)">subtotal  = Σ precio_unitario × cantidad   (ítems de la cuenta, no anulados)
 descuento = 0 | monto | subtotal × %       (según descuento_tipo)
 total     = subtotal − descuento + propina
-pagado    = Σ pagos
+pagado    = Σ pagos de la cuenta
 saldo     = total − pagado</div>
-  <p>Redondeo a dos decimales en cada paso. El descuento nunca supera el subtotal. Un pago que haga <code>pagado &gt; total</code> se rechaza.</p>
+  <p>Redondeo a dos decimales en cada paso. El descuento nunca supera el subtotal. Un pago que haga <code>pagado &gt; total</code> se rechaza. El total de la mesa es la suma de sus cuentas.</p>
 </section>
 
 <section id="reglas">
@@ -331,8 +332,9 @@ saldo     = total − pagado</div>
     <li><span><b>Precio y nombre se copian al ítem.</b> Cambiar el menú en admin no altera pedidos existentes.</span></li>
     <li><span><b>Rondas.</b> Cada envío del mesero es una ronda. Cada agregado desde caja es otra ronda, que caja decide si va a cocina o se marca “ya servido”.</span></li>
     <li><span><b>Cocina no bloquea nada.</b> Marcar “Listo” solo genera un aviso al mesero y a caja. Con cocina desactivada, esos avisos no aparecen y el lanzador no muestra su enlace.</span></li>
-    <li><span><b>Cobro por partes.</b> Se aceptan varios pagos. Al cubrir el total, el pedido queda cobrado, la mesa se libera y se abre el ticket.</span></li>
-    <li><span><b>Un pedido cobrado es inmutable.</b> Una devolución posterior se registra como egreso vinculado a ese pedido.</span></li>
+    <li><span><b>Cobro por cuenta, con varios métodos.</b> Una cuenta acepta varios pagos, por ejemplo parte en efectivo y parte por transferencia. Al cubrir su total, la cuenta queda cobrada y se abre su ticket. La mesa se libera cuando todas las cuentas están cobradas.</span></li>
+    <li><span><b>Dividir es opcional y solo en caja.</b> El mesero toma el pedido sin pensar en cuentas. Al cobrar, caja puede crear cuentas y mover ítems entre ellas; cada cuenta tiene su cliente, descuento, propina, pagos y ticket. Si no se divide, la mesa es una sola cuenta.</span></li>
+    <li><span><b>Una cuenta cobrada es inmutable.</b> No recibe ni entrega ítems. Una devolución posterior se registra como egreso vinculado al pedido.</span></li>
     <li><span><b>Apertura de caja</b> registra el fondo inicial y permite ajustar el stock del día producto por producto.</span></li>
     <li><span><b>Cierre de caja</b> exige que no haya mesas ocupadas. Calcula <code>efectivo_esperado = fondo + ventas en efectivo − egresos</code>, pide el efectivo contado, muestra la diferencia y genera el respaldo.</span></li>
     <li><span><b>Avisos de stock.</b> Bajo el umbral: <span class="pill warn">Quedan 4</span>. En cero: <span class="pill crit">Agotado</span>, no seleccionable. Se ven en mesero, caja, admin y cocina.</span></li>
@@ -380,8 +382,9 @@ saldo     = total − pagado</div>
       <h4>Caja</h4>
       <ul>
         <li>Abrir caja con fondo inicial y stock del día. Cerrar caja con arqueo.</li>
-        <li>Por mesa: agregar ítems olvidados, anular con motivo, descuento, propina, cliente.</li>
-        <li>Pagos: uno o varios, con método y referencia. “Cobrar exacto” rellena el saldo.</li>
+        <li>Por mesa: agregar ítems olvidados, anular con motivo.</li>
+        <li>“Dividir cuenta”: ítems a la izquierda, cuentas a la derecha; tocar un ítem y una cuenta lo mueve. Un ítem de cantidad 2 se puede repartir 1 y 1.</li>
+        <li>Por cuenta: cliente, descuento, propina y pagos, uno o varios con método y referencia. “Cobrar exacto” rellena el saldo.</li>
         <li>Egresos por tipo con pedido vinculado opcional.</li>
       </ul>
     </div>
@@ -412,7 +415,7 @@ saldo     = total − pagado</div>
   <h2>Ticket</h2>
   <div class="ticket-wrap">
     <div class="ticket" aria-label="Ejemplo de ticket">        CAFETERÍA EJEMPLO
-      Pedido #37 · Mesa 2
+      Pedido #37 · Cuenta 1 de 2 · Mesa 2
       12/09/2026 08:44 · Carlos
 --------------------------------
 2  Capuchino           2.50  5.00
@@ -433,7 +436,7 @@ CI 0912345678
    Precios incluyen impuestos</div>
     <div class="ticket-notes">
       <p>Página imprimible desde el navegador con estilos para rollo de 80 mm y para hoja A4. Se abre sola al completar el cobro.</p>
-      <p>Los ítems anulados no aparecen. Los datos del cliente salen solo si se asoció uno. Cuando llegue la impresora térmica, se conecta en este mismo punto sin cambiar nada más.</p>
+      <p>Sale un ticket por cuenta. Si la mesa se dividió, indica “Cuenta 1 de 2”. Los ítems anulados no aparecen. Los datos del cliente salen solo si se asoció uno. Cuando llegue la impresora térmica, se conecta en este mismo punto sin cambiar nada más.</p>
       <p><em>Los datos del ejemplo son ficticios.</em></p>
     </div>
   </div>
@@ -447,7 +450,7 @@ CI 0912345678
     <tr><td>Dos meseros piden lo último</td><td>El primero se lo lleva. El segundo ve “Se acaba de agotar” y el ítem no se agrega.</td></tr>
     <tr><td>Se cae el WiFi del celular</td><td>Franja roja “Sin conexión”, botones de envío desactivados, ronda en curso conservada. Al volver, reconecta y refresca.</td></tr>
     <tr><td>Se reinicia la PC de caja</td><td>Todo está en PostgreSQL. Al abrir de nuevo, mesas, rondas y pagos parciales siguen ahí. La jornada sigue abierta.</td></tr>
-    <tr><td>Dato incoherente</td><td>Cobrar sin caja abierta, pagar de más, cerrar con mesas ocupadas, descuento mayor al subtotal, editar pedido cobrado, stock negativo: mensaje claro en pantalla, nunca pantalla en blanco.</td></tr>
+    <tr><td>Dato incoherente</td><td>Cobrar sin caja abierta, pagar de más, cerrar con mesas ocupadas, descuento mayor al subtotal, editar una cuenta cobrada, mover ítems a una cuenta cobrada, stock negativo: mensaje claro en pantalla, nunca pantalla en blanco.</td></tr>
     <tr><td>Error inesperado</td><td>Mensaje genérico en pantalla y detalle en <code>logs/servidor.log</code>, descargable desde admin.</td></tr>
     <tr><td>PostgreSQL no arranca</td><td>El lanzador muestra el error con “Ver registro” y “Reintentar”.</td></tr>
   </table></div>
@@ -456,7 +459,7 @@ CI 0912345678
   <ul>
     <li><b>Unitarias</b>: totales, descuentos, stock, cierre de caja, idempotencia.</li>
     <li><b>Integración</b>: cada ruta de la API contra una base PostgreSQL de prueba, incluyendo dos pedidos simultáneos del último ítem.</li>
-    <li><b>Extremo a extremo</b>: abrir caja → mesero pide → caja agrega → cocina marca listo → cobro dividido → egreso → cierre → reporte correcto.</li>
+    <li><b>Extremo a extremo</b>: abrir caja → mesero pide → caja agrega → cocina marca listo → división en dos cuentas con clientes distintos, una cobrada en efectivo y transferencia → egreso → cierre → reporte correcto.</li>
   </ul>
   <p>Todas corren con un solo comando. La construcción del ejecutable se prueba en Windows antes de entregar. Además, admin trae “Cargar menú de ejemplo” para probar el primer día sin cargar el menú real.</p>
 </section>
@@ -468,8 +471,8 @@ CI 0912345678
   <div class="roadmap">
     <div class="step now"><div class="n">1</div><div><b>Núcleo POS</b><p>Este documento.</p></div></div>
     <div class="step"><div class="n">2</div><div><b>Menú digital</b><p>Página pública con QR en cada mesa. Usa categorías, productos, fotos y descripciones tal como están. Requiere alojar una copia de solo lectura en internet.</p></div></div>
-    <div class="step"><div class="n">3</div><div><b>Facturación electrónica SRI</b><p>Comprobantes XML firmados con certificado .p12, envío al SRI y RIDE en PDF. Usa cliente, pedido, ítems y pagos. Agregará datos del emisor y tarifa de IVA por producto.</p></div></div>
-    <div class="step"><div class="n">4</div><div><b>Wallet de fidelización</b><p>Saldo o puntos por cliente, acumulación al cobrar, canje, y pases para Apple Wallet y Google Wallet. Usa cliente y pedidos cobrados.</p></div></div>
+    <div class="step"><div class="n">3</div><div><b>Facturación electrónica SRI</b><p>Comprobantes XML firmados con certificado .p12, envío al SRI y RIDE en PDF. Emite una factura por cuenta, así dos personas de la misma mesa reciben cada una la suya. Agregará datos del emisor y tarifa de IVA por producto.</p></div></div>
+    <div class="step"><div class="n">4</div><div><b>Wallet de fidelización</b><p>Saldo o puntos por cliente, acumulación al cobrar, canje, y pases para Apple Wallet y Google Wallet. Acumula por cliente sobre cada cuenta cobrada.</p></div></div>
   </div>
   <h3>Fuera del alcance del Núcleo</h3>
   <p>Login o PIN, impresora térmica directa, acceso desde internet, factura electrónica, puntos, menú digital público, desglose de IVA, varios locales, reservas, recetas por ingrediente.</p>

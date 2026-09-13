@@ -1,6 +1,6 @@
 # Núcleo POS Cafetería — Diseño
 
-Fecha: 2026-09-12
+Fecha: 2026-09-12 (cuenta dividida por ítems agregada el 2026-09-13)
 Estado: aprobado en conversación, pendiente de revisión escrita
 Módulo: 1 de 4 (siguen: Menú digital, Facturación electrónica SRI, Wallet de fidelización)
 
@@ -15,7 +15,7 @@ Sistema para operar una cafetería en red local: tomar pedidos por mesa, ampliar
 | Dispositivos | Varios en la red WiFi del local. Servidor en la PC de caja (Windows). Celulares y tablets abren el navegador. |
 | Usuarios | Sin login ni contraseñas. Meseros se eligen de una lista definida en admin. |
 | Stock | Por producto del menú. Cada producto decide si controla stock. Al llegar a cero se bloquea. |
-| Cobro | Métodos efectivo, tarjeta, transferencia. Pagos múltiples (cuenta dividida). Descuento y propina. Ticket imprimible desde navegador (80 mm y hoja normal). |
+| Cobro | Métodos efectivo, tarjeta, transferencia. Varios pagos por cuenta. Cuenta dividida por ítems al momento de cobrar, con cliente, descuento, propina y ticket por cuenta. La división es opcional: por defecto la mesa es una sola cuenta. Ticket imprimible desde navegador (80 mm y hoja normal). |
 | Impresora | No hay aún. El ticket se imprime desde el navegador. |
 | Mesas | Cantidad fija configurable más "Para llevar". |
 | Cocina | Opcional, informativa. Estados Pendiente y Listo. Nada depende de ella. |
@@ -94,17 +94,26 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 - Regla: solo una jornada con `cerrada_en` nulo a la vez (índice único parcial).
 
 **pedido**
-- `jornada_id`, `numero_mesa` (entero, 0 = para llevar), `numero` (secuencial dentro de la jornada, se muestra en ticket), `mesero_id`, `cliente_id` (nulo), `estado` (enum: `abierto`, `cobrado`, `anulado`), `descuento_tipo` (enum: `ninguno`, `monto`, `porcentaje`), `descuento_valor`, `propina`, `notas`, `cobrado_en`.
+- `jornada_id`, `numero_mesa` (entero, 0 = para llevar), `numero` (secuencial dentro de la jornada, se muestra en ticket), `mesero_id`, `estado` (enum: `abierto`, `cobrado`, `anulado`), `notas`, `cobrado_en`.
 - Regla: una mesa con número > 0 tiene como máximo un pedido `abierto` (índice único parcial). "Para llevar" admite varios.
+- Un pedido pasa a `cobrado` cuando todas sus cuentas están cobradas.
+
+**cuenta**
+- `pedido_id`, `numero` (1, 2, 3… dentro del pedido), `cliente_id` (nulo), `descuento_tipo` (enum: `ninguno`, `monto`, `porcentaje`), `descuento_valor`, `propina`, `estado` (enum: `abierta`, `cobrada`), `cobrada_en`.
+- Al crear un pedido se crea automáticamente la cuenta 1. Todos los ítems nacen asignados a ella. El mesero nunca ve cuentas.
+- Caja puede crear cuentas adicionales solo al momento de cobrar, y mover ítems entre cuentas abiertas. Una cuenta sin ítems se puede eliminar; la cuenta 1 no.
+- Cliente, descuento y propina viven en la cuenta, no en el pedido, para que cada persona tenga los suyos.
 
 **ronda**
 - `pedido_id`, `numero` (1, 2, 3… dentro del pedido), `origen` (enum: `mesero`, `caja`), `enviada_a_cocina` (booleano; falso cuando caja marca "ya servido"), `estado` (enum: `pendiente`, `lista`), `lista_en`, `aviso_visto_mesero`, `aviso_visto_caja` (booleanos para descartar el aviso de "Listo para servir").
 
 **pedido_item**
-- `ronda_id`, `producto_id`, `nombre_producto` (copiado), `precio_unitario` (copiado), `cantidad`, `nota`, `anulado` (booleano), `motivo_anulacion`, `anulado_en`.
+- `ronda_id`, `cuenta_id`, `producto_id`, `nombre_producto` (copiado), `precio_unitario` (copiado), `cantidad`, `nota`, `anulado` (booleano), `motivo_anulacion`, `anulado_en`.
+- Repartir un ítem con cantidad mayor a 1 entre dos cuentas divide la fila en dos con la misma ronda y producto (por ejemplo cantidad 2 pasa a 1 + 1). No se dividen fracciones de unidad.
 
 **pago**
-- `pedido_id`, `metodo` (enum: `efectivo`, `tarjeta`, `transferencia`), `monto`, `referencia` (texto libre opcional, por ejemplo últimos dígitos o número de transferencia).
+- `cuenta_id`, `metodo` (enum: `efectivo`, `tarjeta`, `transferencia`), `monto`, `referencia` (texto libre opcional, por ejemplo últimos dígitos o número de transferencia).
+- Una cuenta admite varios pagos con métodos distintos, por ejemplo parte en efectivo y parte por transferencia.
 
 **egreso**
 - `jornada_id`, `tipo` (enum: `compra_ingredientes`, `devolucion_cliente`, `otro`), `monto`, `motivo`, `pedido_id` (nulo).
@@ -114,19 +123,19 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 **cliente**
 - `nombre`, `tipo_identificacion` (enum: `cedula`, `ruc`, `pasaporte`, `consumidor_final`), `identificacion`, `correo`, `telefono`, `direccion`, `activo`.
 - Índice único sobre (`tipo_identificacion`, `identificacion`) salvo consumidor final.
-- Campos pensados para la Facturación SRI del módulo 3; el Núcleo solo los guarda y asocia al pedido.
+- Campos pensados para la Facturación SRI del módulo 3; el Núcleo solo los guarda y asocia a la cuenta. Como cada cuenta tiene sus propios ítems y cliente, el módulo 3 podrá emitir una factura por cuenta.
 
-### 4.4 Cálculo de totales de un pedido
+### 4.4 Cálculo de totales de una cuenta
 
 ```
-subtotal   = suma de (precio_unitario × cantidad) de ítems no anulados
+subtotal   = suma de (precio_unitario × cantidad) de ítems no anulados de la cuenta
 descuento  = 0 | descuento_valor | subtotal × descuento_valor / 100   (según descuento_tipo)
 total      = subtotal − descuento + propina
-pagado     = suma de pagos
+pagado     = suma de pagos de la cuenta
 saldo      = total − pagado
 ```
 
-Redondeo a 2 decimales en cada paso. `descuento` nunca puede superar `subtotal`.
+Redondeo a 2 decimales en cada paso. `descuento` nunca puede superar `subtotal`. El total del pedido, que se muestra en la cuadrícula de mesas, es la suma de los totales de sus cuentas.
 
 ## 5. Reglas de negocio
 
@@ -136,13 +145,14 @@ Redondeo a 2 decimales en cada paso. `descuento` nunca puede superar `subtotal`.
 4. **Precio y nombre se copian al ítem.** Cambios en admin no alteran pedidos existentes.
 5. **Rondas.** Cada envío del mesero crea una ronda `origen=mesero`, `enviada_a_cocina=true`. Cada agregado desde caja crea una ronda `origen=caja`; caja elige si va a cocina o "ya servido".
 6. **Cocina no bloquea nada.** El estado de ronda es informativo. Con `cocina_activa=false` las pantallas de mesero y caja no muestran indicadores de "Listo para servir" y el lanzador no muestra el enlace de cocina.
-7. **Cobro.** Se aceptan pagos parciales. Cuando `pagado >= total` el pedido pasa a `cobrado`, se fija `cobrado_en`, la mesa queda libre y se devuelve la URL del ticket. Se rechaza un pago que haga `pagado > total`.
-8. **Pedido cobrado es inmutable.** Devoluciones posteriores se registran como egreso tipo `devolucion_cliente` vinculado al pedido.
-9. **Anular pedido completo** (caja, con motivo): todos los ítems se anulan, stock devuelto, estado `anulado`, mesa libre. Solo si no tiene pagos.
-10. **Apertura de caja** registra `fondo_inicial` y muestra los productos con stock para ajustar (cada ajuste genera movimiento `apertura`).
-11. **Cierre de caja** exige que no haya pedidos `abiertos`. Calcula y congela totales. `efectivo_esperado = fondo_inicial + total_efectivo − total_egresos`. Caja ingresa `efectivo_contado`; `diferencia_efectivo = efectivo_contado − efectivo_esperado`. Genera respaldo automático.
-12. **Avisos de stock.** `stock_actual <= umbral_stock_bajo` se muestra en amarillo con "Quedan N"; `0` en gris con "Agotado" y no seleccionable. Aplica en mesero, caja, admin y cocina (si activa).
-13. **Idempotencia.** Cada envío de ronda y cada pago lleva un `id` generado en el cliente. Si el servidor ya lo tiene, responde con el resultado anterior sin duplicar.
+7. **Cobro por cuenta.** Se aceptan pagos parciales con distintos métodos. Cuando `pagado >= total` de una cuenta, la cuenta pasa a `cobrada`, se fija `cobrada_en` y se devuelve la URL de su ticket. Se rechaza un pago que haga `pagado > total`. Cuando todas las cuentas del pedido están cobradas, el pedido pasa a `cobrado` y la mesa queda libre.
+8. **División opcional y solo en caja.** El mesero toma el pedido sin pensar en cuentas. En caja, al cobrar, "Dividir cuenta" permite crear cuentas y mover ítems entre las que siguen abiertas. Una cuenta cobrada no acepta ni entrega ítems. Si nunca se divide, la cuenta 1 es la única y el flujo es idéntico a cobrar la mesa completa.
+9. **Cuenta cobrada es inmutable.** Devoluciones posteriores se registran como egreso tipo `devolucion_cliente` vinculado al pedido.
+10. **Anular pedido completo** (caja, con motivo): todos los ítems se anulan, stock devuelto, estado `anulado`, mesa libre. Solo si ninguna cuenta tiene pagos.
+11. **Apertura de caja** registra `fondo_inicial` y muestra los productos con stock para ajustar (cada ajuste genera movimiento `apertura`).
+12. **Cierre de caja** exige que no haya pedidos `abiertos`. Calcula y congela totales. `efectivo_esperado = fondo_inicial + total_efectivo − total_egresos`. Caja ingresa `efectivo_contado`; `diferencia_efectivo = efectivo_contado − efectivo_esperado`. Genera respaldo automático.
+13. **Avisos de stock.** `stock_actual <= umbral_stock_bajo` se muestra en amarillo con "Quedan N"; `0` en gris con "Agotado" y no seleccionable. Aplica en mesero, caja, admin y cocina (si activa).
+14. **Idempotencia.** Cada envío de ronda y cada pago lleva un `id` generado en el cliente. Si el servidor ya lo tiene, responde con el resultado anterior sin duplicar.
 
 ## 6. API
 
@@ -158,10 +168,14 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 | `GET /pedidos/:id` | Detalle con rondas, ítems, pagos, totales |
 | `POST /pedidos/:id/rondas` | Enviar ronda `{id, origen, enviada_a_cocina, items:[{producto_id, cantidad, nota}]}` |
 | `POST /pedidos/:id/items/:itemId/anular` | `{motivo}` |
-| `PATCH /pedidos/:id` | Descuento, propina, cliente, notas |
-| `POST /pedidos/:id/pagos` | `{id, metodo, monto, referencia}` |
+| `PATCH /pedidos/:id` | Notas |
+| `POST /pedidos/:id/cuentas` | Crear cuenta adicional (solo con jornada abierta y pedido abierto) |
+| `DELETE /cuentas/:id` | Eliminar cuenta vacía (no la cuenta 1) |
+| `POST /cuentas/:id/items` | Mover ítems a esta cuenta `{items:[{pedido_item_id, cantidad}]}`; si `cantidad` es menor a la del ítem, se divide la fila |
+| `PATCH /cuentas/:id` | Descuento, propina, cliente |
+| `POST /cuentas/:id/pagos` | `{id, metodo, monto, referencia}` |
+| `GET /cuentas/:id/ticket` | HTML imprimible de esa cuenta |
 | `POST /pedidos/:id/anular` | `{motivo}` |
-| `GET /pedidos/:id/ticket` | HTML imprimible |
 | `GET /cocina/rondas` | Rondas pendientes enviadas a cocina |
 | `POST /rondas/:id/lista` | Marcar lista |
 | `POST /rondas/:id/aviso-visto` | `{pantalla: mesero|caja}` |
@@ -198,9 +212,10 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 - Sin jornada abierta solo se puede abrir caja. Al abrir: fondo inicial y tabla de stock editable.
 - Mesas ocupadas con total y saldo. Dentro de una mesa:
   - Ítems por ronda con origen. "Agregar ítems" abre el catálogo; al confirmar elige "Enviar a cocina" o "Ya servido".
-  - "Anular" por ítem con motivo. "Anular pedido" completo si no hay pagos.
-  - Descuento (monto o %), propina (con sugerido), cliente (buscar por identificación o nombre, crear al vuelo), notas.
-  - Pagos: lista de pagos registrados, formulario método + monto + referencia, botón "Cobrar exacto" que rellena el saldo. Al cubrir el total: pedido cobrado, se abre el ticket en pestaña nueva.
+  - "Anular" por ítem con motivo. "Anular pedido" completo si ninguna cuenta tiene pagos.
+  - Por defecto se ve una sola cuenta con todos los ítems. Botón "Dividir cuenta": aparece la lista de ítems a la izquierda y las cuentas a la derecha ("Cuenta 1", "Cuenta 2", botón "+ Cuenta"). Tocar un ítem y luego una cuenta lo mueve; un ítem con cantidad mayor a 1 pregunta cuántas unidades mover. Las cuentas ya cobradas se muestran bloqueadas.
+  - Por cada cuenta abierta: descuento (monto o %), propina (con sugerido), cliente (buscar por identificación o nombre, crear al vuelo).
+  - Pagos por cuenta: lista de pagos registrados, formulario método + monto + referencia, botón "Cobrar exacto" que rellena el saldo. Al cubrir el total de la cuenta se abre su ticket en pestaña nueva. La mesa se libera cuando todas las cuentas están cobradas.
 - "Egresos": lista de la jornada y formulario.
 - "Cerrar caja": muestra resumen, pide efectivo contado, muestra diferencia, confirma, genera respaldo, imprime reporte de cierre.
 - Indicador de ronda lista por mesa si cocina activa.
@@ -216,22 +231,22 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 - Datos de ejemplo: cargar y borrar.
 
 ### 7.5 Ticket
-HTML con CSS `@media print` para 80 mm y hoja A4. Contenido: nombre del local, número de pedido, mesa, mesero, fecha y hora, ítems (cantidad, nombre, precio, subtotal), ítems anulados omitidos, subtotal, descuento, propina, total, pagos por método, cliente (nombre e identificación) si hay. Pie: "Precios incluyen impuestos". Se abre con `window.print()`.
+Un ticket por cuenta. HTML con CSS `@media print` para 80 mm y hoja A4. Contenido: nombre del local, número de pedido y de cuenta si la mesa se dividió (por ejemplo "Pedido #37 · Cuenta 2 de 2"), mesa, mesero, fecha y hora, ítems de esa cuenta (cantidad, nombre, precio, subtotal), ítems anulados omitidos, subtotal, descuento, propina, total, pagos por método, cliente (nombre e identificación) si hay. Pie: "Precios incluyen impuestos". Se abre con `window.print()`.
 
 ## 8. Manejo de errores
 
 - **Concurrencia de stock**: transacción con `SELECT … FOR UPDATE` sobre el producto. Segundo pedido recibe 409 "Se acaba de agotar".
 - **Red caída en el cliente**: franja roja "Sin conexión"; botones de envío desactivados; ronda en curso persistida en `localStorage`; reconexión automática de SSE y recarga de estado.
 - **Reinicio de la PC de caja**: todo el estado está en PostgreSQL. El lanzador reabre y la jornada sigue abierta.
-- **Validaciones** (409 con mensaje): sin jornada abierta; pago que excede el total; cierre con pedidos abiertos; descuento mayor al subtotal; modificar pedido cobrado; stock negativo en ajuste; mesa fuera de rango; mesero inactivo; producto inactivo o agotado.
+- **Validaciones** (409 con mensaje): sin jornada abierta; pago que excede el total de la cuenta; cierre con pedidos abiertos; descuento mayor al subtotal; modificar cuenta o pedido cobrados; mover ítems desde o hacia una cuenta cobrada; eliminar la cuenta 1 o una cuenta con ítems; stock negativo en ajuste; mesa fuera de rango; mesero inactivo; producto inactivo o agotado.
 - **Errores inesperados**: 500 con mensaje genérico en pantalla y detalle en `logs/servidor.log` (rotación diaria, 30 días).
 - **PostgreSQL no arranca**: el lanzador muestra el error y ofrece "Ver registro" y "Reintentar".
 
 ## 9. Pruebas
 
-- **Unitarias** (Vitest): cálculo de totales, reglas de descuento, lógica de stock, cierre de caja con efectivo esperado, idempotencia.
+- **Unitarias** (Vitest): cálculo de totales por cuenta, reglas de descuento, división de ítems entre cuentas, lógica de stock, cierre de caja con efectivo esperado, idempotencia.
 - **Integración** (Vitest + PostgreSQL de prueba en la misma instancia portátil, base `cafeteria_test`): cada ruta de la API, incluyendo concurrencia de stock con dos peticiones simultáneas.
-- **Extremo a extremo** (Playwright): abrir caja → mesero toma pedido → caja agrega ítem → cocina marca lista → caja cobra dividido → egreso → cerrar caja → reporte correcto.
+- **Extremo a extremo** (Playwright): abrir caja → mesero toma pedido → caja agrega ítem → cocina marca lista → caja divide en dos cuentas con clientes distintos y cobra una con efectivo y transferencia → egreso → cerrar caja → reporte correcto.
 - Todas corren con `npm test`. La construcción del ejecutable se prueba en Windows antes de entregar.
 
 ## 10. Fuera del alcance del Núcleo
@@ -241,5 +256,5 @@ Login o PIN, impresora térmica directa, acceso desde internet, factura electró
 ## 11. Ganchos para módulos siguientes
 
 - **Menú digital**: usará `categoria`, `producto` (foto, descripción) tal como están. Requerirá alojar una copia de solo lectura en internet.
-- **Facturación SRI**: usará `cliente` y `pedido` con sus ítems y pagos. Necesitará agregar tablas `comprobante` y datos del emisor (RUC, establecimiento, punto de emisión, certificado .p12). Los productos necesitarán un campo de tarifa de IVA que hoy no existe; se agregará entonces.
-- **Wallet**: usará `cliente` y `pedido.cobrado_en` para acumular. Agregará `saldo` o `puntos` y tabla de movimientos.
+- **Facturación SRI**: usará `cliente` y `cuenta` con sus ítems y pagos, emitiendo una factura por cuenta. Necesitará agregar tablas `comprobante` y datos del emisor (RUC, establecimiento, punto de emisión, certificado .p12). Los productos necesitarán un campo de tarifa de IVA que hoy no existe; se agregará entonces.
+- **Wallet**: usará `cliente` y `cuenta.cobrada_en` para acumular por persona. Agregará `saldo` o `puntos` y tabla de movimientos.
