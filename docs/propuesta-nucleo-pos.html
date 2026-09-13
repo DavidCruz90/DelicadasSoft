@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Núcleo POS Cafetería</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --paper:#FFFFFF;
+  --paper-2:#F4F6F3;
+  --ink:#1B1F1C;
+  --ink-2:#4B554E;
+  --ink-3:#7C877F;
+  --line:#D9DFDA;
+  --accent:#1E6B55;
+  --accent-ink:#FFFFFF;
+  --accent-soft:#E3F0EA;
+  --warn:#B7791F;
+  --warn-soft:#FBF0DA;
+  --crit:#B23A2E;
+  --crit-soft:#F8E3E0;
+  --ok:#1E6B55;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --display:"Bricolage Grotesque","IBM Plex Sans",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#141816;
+    --paper-2:#1C221E;
+    --ink:#EDF0EC;
+    --ink-2:#B4BDB6;
+    --ink-3:#7F8A82;
+    --line:#2C352F;
+    --accent:#5FBF9B;
+    --accent-ink:#0F1A15;
+    --accent-soft:#1B3128;
+    --warn:#E0A93F;
+    --warn-soft:#3A2D12;
+    --crit:#E4796B;
+    --crit-soft:#3E1F1A;
+    --ok:#5FBF9B;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#141816;
+  --paper-2:#1C221E;
+  --ink:#EDF0EC;
+  --ink-2:#B4BDB6;
+  --ink-3:#7F8A82;
+  --line:#2C352F;
+  --accent:#5FBF9B;
+  --accent-ink:#0F1A15;
+  --accent-soft:#1B3128;
+  --warn:#E0A93F;
+  --warn-soft:#3A2D12;
+  --crit:#E4796B;
+  --crit-soft:#3E1F1A;
+  --ok:#5FBF9B;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--sans);font-size:16px;line-height:1.55;
+  padding-block:0 64px;padding-inline:16px;
+}
+a{color:var(--accent)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1120px;margin:0 auto}
+header.top{
+  border-bottom:1px solid var(--line);padding-block:28px 24px;
+  display:flex;flex-wrap:wrap;gap:16px 32px;align-items:flex-end;justify-content:space-between;
+}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(34px,5vw,56px);line-height:1;margin:6px 0 10px;text-wrap:balance;letter-spacing:-.01em}
+.lede{font-size:18px;color:var(--ink-2);max-width:62ch;margin:0}
+.meta{font-family:var(--mono);font-size:13px;color:var(--ink-2);display:grid;gap:4px;text-align:right}
+.meta b{color:var(--ink);font-weight:500}
+.layout{display:grid;grid-template-columns:200px minmax(0,1fr);gap:48px;padding-top:32px}
+nav.toc{position:sticky;top:24px;align-self:start;font-size:14px}
+nav.toc ol{list-style:none;margin:0;padding:0;display:grid;gap:6px;border-left:1px solid var(--line)}
+nav.toc a{color:var(--ink-2);text-decoration:none;display:block;padding:2px 0 2px 14px;margin-left:-1px;border-left:2px solid transparent}
+nav.toc a:hover{color:var(--ink);border-left-color:var(--accent)}
+main{max-width:720px;min-width:0}
+section{padding-block:8px 40px}
+section+section{border-top:1px solid var(--line);padding-top:36px}
+h2{font-family:var(--display);font-weight:700;font-size:28px;line-height:1.15;margin:0 0 6px;text-wrap:balance;letter-spacing:-.01em}
+h3{font-family:var(--display);font-weight:500;font-size:19px;margin:28px 0 8px}
+p{margin:0 0 14px;max-width:68ch}
+ul,ol{margin:0 0 16px;padding-left:22px;max-width:68ch}
+li{margin-bottom:6px}
+li::marker{color:var(--ink-3)}
+code{font-family:var(--mono);font-size:.9em;background:var(--paper-2);padding:1px 5px;border-radius:3px}
+.sec-label{font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px}
+/* tables */
+.tbl-wrap{overflow-x:auto;margin:10px 0 20px}
+table{border-collapse:collapse;width:100%;font-size:14.5px}
+th,td{text-align:left;vertical-align:top;padding:9px 12px 9px 0;border-bottom:1px solid var(--line)}
+th{font-weight:600;color:var(--ink-2);font-size:13px;text-transform:uppercase;letter-spacing:.05em}
+td:first-child{font-weight:500;white-space:nowrap}
+td code{white-space:nowrap}
+/* decision grid */
+.decisions{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);margin:16px 0 8px}
+.decisions div{background:var(--paper);padding:14px 16px}
+.decisions .k{font-family:var(--mono);font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.decisions .v{font-size:15px;line-height:1.4}
+/* pills */
+.pill{display:inline-block;font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);vertical-align:middle}
+.pill.ok{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.pill.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.pill.crit{background:var(--crit-soft);color:var(--crit);border-color:transparent}
+.pill.off{background:var(--paper-2);color:var(--ink-3);border-color:transparent}
+/* architecture diagram */
+.arch{display:grid;grid-template-columns:1fr auto 1.4fr;gap:16px;align-items:stretch;margin:18px 0 22px;font-size:14px}
+.arch .devices{display:grid;gap:8px}
+.arch .dev{border:1px solid var(--line);padding:10px 12px;background:var(--paper)}
+.arch .dev b{display:block;font-weight:600}
+.arch .dev span{color:var(--ink-3);font-family:var(--mono);font-size:12px}
+.arch .dev.opt{border-style:dashed;color:var(--ink-2)}
+.arch .wifi{display:flex;flex-direction:column;justify-content:center;align-items:center;color:var(--ink-3);font-family:var(--mono);font-size:12px;gap:6px}
+.arch .wifi .bar{width:1px;flex:1;background:var(--line)}
+.arch .pc{border:1px solid var(--ink);padding:12px;display:grid;gap:8px;align-content:start}
+.arch .pc .t{font-family:var(--display);font-weight:700;font-size:16px}
+.arch .box{border:1px solid var(--line);background:var(--paper-2);padding:8px 10px}
+.arch .box b{font-weight:600;display:block}
+.arch .box span{color:var(--ink-2);font-size:13px}
+.arch .box.db{border-color:var(--accent);background:var(--accent-soft)}
+/* mesas mock */
+.mock{border:1px solid var(--line);background:var(--paper-2);padding:14px;margin:12px 0 20px;font-size:13px}
+.mock .bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.mesas{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px}
+.mesa{aspect-ratio:1.1;border:1px solid var(--line);background:var(--paper);display:flex;flex-direction:column;justify-content:space-between;padding:8px;font-family:var(--mono);font-size:12px}
+.mesa b{font-family:var(--display);font-size:18px;font-weight:700}
+.mesa.ocupada{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.mesa.lista{background:var(--paper);border:2px solid var(--accent);color:var(--accent)}
+.mesa small{font-size:11px;opacity:.85}
+.catalogo{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:12px}
+.prod{border:1px solid var(--line);background:var(--paper);padding:8px 10px;display:grid;gap:4px}
+.prod .n{font-weight:600}
+.prod .p{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.prod.agotado{opacity:.55}
+.prod.agotado .n{text-decoration:line-through}
+/* ticket */
+.ticket-wrap{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;margin:12px 0 20px}
+.ticket{font-family:var(--mono);font-size:12.5px;line-height:1.45;width:100%;max-width:300px;background:var(--paper);color:var(--ink);border:1px solid var(--line);padding:16px 18px;white-space:pre;overflow-x:auto;
+  box-shadow:0 1px 0 var(--line),0 12px 24px -18px rgba(0,0,0,.35)}
+.ticket-notes{flex:1;min-width:220px;font-size:14.5px}
+/* rules */
+.rules{counter-reset:r;list-style:none;padding:0;max-width:none}
+.rules li{counter-increment:r;display:grid;grid-template-columns:44px 1fr;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);margin:0}
+.rules li::before{content:counter(r,decimal-leading-zero);font-family:var(--mono);color:var(--ink-3);font-size:13px;padding-top:3px}
+.rules li b{font-weight:600}
+/* screens */
+.screens{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin:12px 0 8px;max-width:none}
+.screen{border:1px solid var(--line);padding:16px}
+.screen .path{font-family:var(--mono);font-size:13px;color:var(--accent);margin-bottom:6px}
+.screen h4{font-family:var(--display);font-size:18px;margin:0 0 8px;font-weight:700}
+.screen ul{padding-left:18px;margin:0;font-size:14.5px;max-width:none}
+/* roadmap */
+.roadmap{display:grid;gap:0;margin:16px 0 8px;border-top:1px solid var(--line)}
+.step{display:grid;grid-template-columns:56px 1fr;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)}
+.step .n{font-family:var(--display);font-weight:700;font-size:22px;color:var(--ink-3);line-height:1}
+.step.now .n{color:var(--accent)}
+.step b{display:block;font-weight:600;margin-bottom:2px}
+.step p{margin:0;font-size:14.5px;color:var(--ink-2)}
+.callout{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;margin:16px 0;font-size:15px}
+.callout p:last-child{margin:0}
+.ask{border:1px solid var(--ink);padding:18px 20px;margin-top:8px}
+.ask h3{margin-top:0}
+.ask ul{margin-bottom:0}
+@media (max-width:820px){
+  .layout{grid-template-columns:1fr;gap:24px}
+  nav.toc{position:static}
+  nav.toc ol{display:flex;flex-wrap:wrap;gap:4px 14px;border:0}
+  nav.toc a{padding:2px 0;border:0}
+  .arch{grid-template-columns:1fr}
+  .arch .wifi{flex-direction:row}
+  .arch .wifi .bar{height:1px;width:auto;flex:1}
+  .meta{text-align:left}
+}
+@media print{
+  nav.toc{display:none}
+  .layout{grid-template-columns:1fr}
+  body{padding:0}
+}
+@media (prefers-reduced-motion: no-preference){
+  .mesa.lista{animation:pulse 1.6s ease-in-out infinite}
+}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 var(--accent-soft)}50%{box-shadow:0 0 0 6px var(--accent-soft)}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header class="top">
+  <div>
+    <div class="eyebrow">Propuesta de diseño · Módulo 1 de 4</div>
+    <h1>Núcleo POS Cafetería</h1>
+    <p class="lede">Pedidos por mesa, caja, stock y cocina opcional, funcionando en la red WiFi del local desde una sola carpeta en la PC de caja.</p>
+  </div>
+  <div class="meta">
+    <div><b>Fecha</b> 12 sep 2026</div>
+    <div><b>Estado</b> para revisión del propietario</div>
+    <div><b>Siguen</b> Menú digital · Facturación SRI · Wallet</div>
+  </div>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="Contenido">
+  <ol>
+    <li><a href="#resumen">Resumen</a></li>
+    <li><a href="#decisiones">Decisiones</a></li>
+    <li><a href="#arquitectura">Arquitectura</a></li>
+    <li><a href="#datos">Modelo de datos</a></li>
+    <li><a href="#reglas">Reglas de negocio</a></li>
+    <li><a href="#pantallas">Pantallas</a></li>
+    <li><a href="#ticket">Ticket</a></li>
+    <li><a href="#errores">Errores y pruebas</a></li>
+    <li><a href="#roadmap">Módulos siguientes</a></li>
+    <li><a href="#revision">Qué revisar</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<section id="resumen">
+  <div class="sec-label">01</div>
+  <h2>Qué se va a construir</h2>
+  <p>Un programa que corre en la PC de caja y al que meseros, caja y cocina entran desde el navegador de su celular, tablet o PC, todos en el mismo WiFi. El mesero toma el pedido por mesa y lo amplía cuando el cliente pide más. Caja cobra, agrega lo que el mesero olvidó, registra egresos y abre y cierra la jornada. Cada producto del menú puede tener stock: el mesero ve cuántos quedan, y cuando llega a cero no se puede pedir hasta que se edite el stock.</p>
+  <p>La cocina tiene su pantalla, pero es opcional. Si un día no hay dispositivo o nadie marca nada, el resto del sistema funciona igual.</p>
+  <div class="callout">
+    <p><strong>Regla de arranque.</strong> Nada opera sin apertura de caja. Caja registra el fondo inicial y ajusta el stock del día; hasta entonces, mesero y cocina muestran “Caja cerrada”.</p>
+  </div>
+</section>
+
+<section id="decisiones">
+  <div class="sec-label">02</div>
+  <h2>Decisiones tomadas</h2>
+  <p>Lo acordado en la sesión de diseño. Cada una se puede cambiar, pero afecta el resto.</p>
+  <div class="decisions">
+    <div><div class="k">Dispositivos</div><div class="v">Varios, en red local. Servidor en la PC de caja con Windows.</div></div>
+    <div><div class="k">Usuarios</div><div class="v">Sin login. El mesero elige su nombre de una lista que admin define.</div></div>
+    <div><div class="k">Stock</div><div class="v">Por producto. Cada producto decide si controla stock. En cero se bloquea.</div></div>
+    <div><div class="k">Cobro</div><div class="v">Efectivo, tarjeta, transferencia. Cuenta dividida. Descuento y propina.</div></div>
+    <div><div class="k">Ticket</div><div class="v">Imprimible desde el navegador, 80 mm o A4. Térmica más adelante.</div></div>
+    <div><div class="k">Cocina</div><div class="v">Opcional e informativa. Pendiente y Listo. Nada depende de ella.</div></div>
+    <div><div class="k">Jornada</div><div class="v">Apertura y cierre de caja explícitos con arqueo de efectivo.</div></div>
+    <div><div class="k">Impuestos</div><div class="v">Precios finales, sin desglose de IVA en este módulo.</div></div>
+    <div><div class="k">Base de datos</div><div class="v">PostgreSQL 16 desde el inicio, portátil dentro de la carpeta.</div></div>
+    <div><div class="k">Tecnología</div><div class="v">Node.js 22 + TypeScript, Fastify, Drizzle, Preact.</div></div>
+  </div>
+</section>
+
+<section id="arquitectura">
+  <div class="sec-label">03</div>
+  <h2>Arquitectura</h2>
+  <p>Una sola carpeta en la PC de caja. El lanzador enciende PostgreSQL y el servidor con doble clic, y muestra la dirección y un código QR para que los demás dispositivos se conecten. No se instala nada como servicio de Windows ni en los celulares.</p>
+
+  <div class="arch">
+    <div class="devices">
+      <div class="dev"><b>Celular del mesero</b><span>/mesero</span></div>
+      <div class="dev"><b>PC o tablet de caja</b><span>/caja · /admin</span></div>
+      <div class="dev opt"><b>Pantalla de cocina</b><span>/cocina · opcional</span></div>
+    </div>
+    <div class="wifi"><div class="bar"></div>WiFi local<div class="bar"></div></div>
+    <div class="pc">
+      <div class="t">PC de caja · carpeta Cafeteria/</div>
+      <div class="box"><b>Cafeteria.exe</b><span>Lanzador: arranca y detiene todo, muestra IP y QR</span></div>
+      <div class="box"><b>Servidor Node.js</b><span>API REST + pantallas + eventos en vivo (SSE)</span></div>
+      <div class="box db"><b>PostgreSQL 16 portátil</b><span>Puerto 5433, solo accesible desde la misma PC</span></div>
+      <div class="box"><b>fotos/ · Respaldos/ · logs/</b><span>Imágenes del menú, pg_dump por jornada, servidor.log</span></div>
+    </div>
+  </div>
+
+  <h3>Actualización en vivo</h3>
+  <p>Cada pantalla mantiene una conexión abierta con el servidor y recibe avisos cortos cuando algo cambia. Con eso, cocina ve la ronda al instante, todos los meseros ven el mismo stock, y caja ve las mesas ocupadas en tiempo real.</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>Evento</th><th>Cuándo se emite</th><th>Quién reacciona</th></tr>
+    <tr><td><code>jornada</code></td><td>Se abre o cierra caja</td><td>Todas las pantallas</td></tr>
+    <tr><td><code>mesa</code></td><td>Pedido creado, cobrado, anulado; ronda enviada o lista</td><td>Mesero, caja, cocina</td></tr>
+    <tr><td><code>stock</code></td><td>Cualquier movimiento de stock</td><td>Mesero, caja, cocina, admin</td></tr>
+    <tr><td><code>catalogo</code></td><td>Producto o categoría editados</td><td>Mesero, caja, cocina</td></tr>
+    <tr><td><code>config</code></td><td>Configuración o lista de meseros editadas</td><td>Todas</td></tr>
+  </table></div>
+
+  <h3>Respaldo y restauración</h3>
+  <p>Botón “Respaldar ahora” en admin y respaldo automático al cerrar caja. Genera un archivo con fecha en <code>Respaldos/</code> más un zip de las fotos. Restaurar se hace desde la misma pantalla, solo con caja cerrada y confirmando por escrito.</p>
+</section>
+
+<section id="datos">
+  <div class="sec-label">04</div>
+  <h2>Modelo de datos</h2>
+  <p>Tablas en singular y en español. Todas llevan id, fecha de creación y de actualización. Los montos son numéricos con dos decimales.</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>Tabla</th><th>Qué guarda</th><th>Campos clave</th></tr>
+    <tr><td>configuracion</td><td>Una sola fila con los parámetros del local</td><td>nombre_local, simbolo_moneda, cantidad_mesas, propina_sugerida_pct, umbral_stock_bajo, cocina_activa</td></tr>
+    <tr><td>mesero</td><td>Lista que define admin</td><td>nombre, activo</td></tr>
+    <tr><td>categoria</td><td>Secciones del menú</td><td>nombre, orden, activa</td></tr>
+    <tr><td>producto</td><td>Ítems del menú con o sin stock</td><td>categoria_id, nombre, precio, foto, activo, controla_stock, stock_actual</td></tr>
+    <tr><td>movimiento_stock</td><td>Cada cambio de stock con su motivo</td><td>producto_id, cantidad, stock_resultante, origen (venta, anulacion, ajuste_manual, apertura), motivo</td></tr>
+    <tr><td>jornada</td><td>Apertura, cierre y totales congelados</td><td>abierta_en, cerrada_en, fondo_inicial, efectivo_contado, total_*, efectivo_esperado, diferencia_efectivo</td></tr>
+    <tr><td>pedido</td><td>Una cuenta por mesa</td><td>jornada_id, numero_mesa (0 = para llevar), mesero_id, cliente_id, estado (abierto, cobrado, anulado), descuento, propina</td></tr>
+    <tr><td>ronda</td><td>Cada envío de ítems dentro del pedido</td><td>pedido_id, numero, origen (mesero, caja), enviada_a_cocina, estado (pendiente, lista)</td></tr>
+    <tr><td>pedido_item</td><td>Línea del pedido con precio copiado</td><td>ronda_id, producto_id, nombre_producto, precio_unitario, cantidad, nota, anulado, motivo_anulacion</td></tr>
+    <tr><td>pago</td><td>Uno o varios por pedido</td><td>pedido_id, metodo (efectivo, tarjeta, transferencia), monto, referencia</td></tr>
+    <tr><td>egreso</td><td>Salidas de dinero de la jornada</td><td>jornada_id, tipo (compra_ingredientes, devolucion_cliente, otro), monto, motivo, pedido_id</td></tr>
+    <tr><td>cliente</td><td>Datos listos para facturar después</td><td>nombre, tipo_identificacion (cedula, ruc, pasaporte, consumidor_final), identificacion, correo, telefono, direccion</td></tr>
+  </table></div>
+
+  <h3>Cómo se calcula un pedido</h3>
+  <div class="ticket" style="max-width:100%;width:auto;box-shadow:none;background:var(--paper-2)">subtotal  = Σ precio_unitario × cantidad   (ítems no anulados)
+descuento = 0 | monto | subtotal × %       (según descuento_tipo)
+total     = subtotal − descuento + propina
+pagado    = Σ pagos
+saldo     = total − pagado</div>
+  <p>Redondeo a dos decimales en cada paso. El descuento nunca supera el subtotal. Un pago que haga <code>pagado &gt; total</code> se rechaza.</p>
+</section>
+
+<section id="reglas">
+  <div class="sec-label">05</div>
+  <h2>Reglas de negocio</h2>
+  <p>Las que definen el comportamiento y que las pruebas automáticas verifican.</p>
+  <ol class="rules">
+    <li><span><b>Nada sin caja abierta.</b> Crear pedidos, enviar rondas, cobrar, egresos y ajustes de stock exigen jornada abierta. Admin permite catálogo, mesas, meseros, clientes, configuración y respaldos aunque esté cerrada.</span></li>
+    <li><span><b>El stock baja al agregar el ítem</b>, no al cobrar, dentro de una transacción con bloqueo de fila. Si dos meseros piden lo último a la vez, el segundo recibe “Se acaba de agotar”. Nunca queda negativo por ventas.</span></li>
+    <li><span><b>Anular devuelve stock.</b> Solo caja anula ítems ya enviados, con motivo. El mesero quita ítems solo antes de enviar la ronda.</span></li>
+    <li><span><b>Precio y nombre se copian al ítem.</b> Cambiar el menú en admin no altera pedidos existentes.</span></li>
+    <li><span><b>Rondas.</b> Cada envío del mesero es una ronda. Cada agregado desde caja es otra ronda, que caja decide si va a cocina o se marca “ya servido”.</span></li>
+    <li><span><b>Cocina no bloquea nada.</b> Marcar “Listo” solo genera un aviso al mesero y a caja. Con cocina desactivada, esos avisos no aparecen y el lanzador no muestra su enlace.</span></li>
+    <li><span><b>Cobro por partes.</b> Se aceptan varios pagos. Al cubrir el total, el pedido queda cobrado, la mesa se libera y se abre el ticket.</span></li>
+    <li><span><b>Un pedido cobrado es inmutable.</b> Una devolución posterior se registra como egreso vinculado a ese pedido.</span></li>
+    <li><span><b>Apertura de caja</b> registra el fondo inicial y permite ajustar el stock del día producto por producto.</span></li>
+    <li><span><b>Cierre de caja</b> exige que no haya mesas ocupadas. Calcula <code>efectivo_esperado = fondo + ventas en efectivo − egresos</code>, pide el efectivo contado, muestra la diferencia y genera el respaldo.</span></li>
+    <li><span><b>Avisos de stock.</b> Bajo el umbral: <span class="pill warn">Quedan 4</span>. En cero: <span class="pill crit">Agotado</span>, no seleccionable. Se ven en mesero, caja, admin y cocina.</span></li>
+    <li><span><b>Sin duplicados por red inestable.</b> Cada envío de ronda y cada pago lleva un id generado en el dispositivo. Si el servidor ya lo tiene, responde lo mismo sin repetirlo.</span></li>
+  </ol>
+</section>
+
+<section id="pantallas">
+  <div class="sec-label">06</div>
+  <h2>Pantallas</h2>
+  <p>Cuatro direcciones, cada una para un puesto. Diseño táctil: botones grandes, nada depende de pasar el mouse.</p>
+
+  <div class="mock" aria-label="Boceto de la pantalla del mesero">
+    <div class="bar"><span>/mesero · Carlos <span class="pill off">Cambiar</span></span><span>Caja abierta 07:42</span></div>
+    <div class="mesas">
+      <div class="mesa"><b>1</b><small>libre</small></div>
+      <div class="mesa ocupada"><b>2</b><small>$14.50 · 08:10</small></div>
+      <div class="mesa"><b>3</b><small>libre</small></div>
+      <div class="mesa lista"><b>4</b><small>listo para servir</small></div>
+      <div class="mesa ocupada"><b>5</b><small>$6.00 · 08:21</small></div>
+      <div class="mesa"><b>6</b><small>libre</small></div>
+      <div class="mesa"><b>↗</b><small>para llevar</small></div>
+    </div>
+    <div class="catalogo">
+      <div class="prod"><span class="n">Capuchino</span><span class="p">$2.50 · sin stock</span></div>
+      <div class="prod"><span class="n">Sándwich de pollo</span><span class="p">$4.50 · <span class="pill ok">Quedan 12</span></span></div>
+      <div class="prod"><span class="n">Bolón mixto</span><span class="p">$3.00 · <span class="pill warn">Quedan 3</span></span></div>
+      <div class="prod agotado"><span class="n">Tres leches</span><span class="p">$2.75 · <span class="pill crit">Agotado</span></span></div>
+    </div>
+  </div>
+
+  <div class="screens">
+    <div class="screen">
+      <div class="path">/mesero</div>
+      <h4>Mesero</h4>
+      <ul>
+        <li>Elige su nombre de la lista de admin; el celular lo recuerda.</li>
+        <li>Cuadrícula de mesas con estado y total. Botón “Para llevar”.</li>
+        <li>Dentro de la mesa: rondas ya enviadas en solo lectura, más la zona “Nueva ronda” con el catálogo por categorías, cantidad y nota.</li>
+        <li>“Enviar a cocina”. Si se cae el WiFi, lo marcado se conserva en el celular.</li>
+      </ul>
+    </div>
+    <div class="screen">
+      <div class="path">/caja</div>
+      <h4>Caja</h4>
+      <ul>
+        <li>Abrir caja con fondo inicial y stock del día. Cerrar caja con arqueo.</li>
+        <li>Por mesa: agregar ítems olvidados, anular con motivo, descuento, propina, cliente.</li>
+        <li>Pagos: uno o varios, con método y referencia. “Cobrar exacto” rellena el saldo.</li>
+        <li>Egresos por tipo con pedido vinculado opcional.</li>
+      </ul>
+    </div>
+    <div class="screen">
+      <div class="path">/cocina <span class="pill off">opcional</span></div>
+      <h4>Cocina</h4>
+      <ul>
+        <li>Tarjetas de rondas pendientes por hora: mesa, mesero, minutos de espera, ítems y notas.</li>
+        <li>Botón “Listo” por ronda. Sonido al entrar una nueva, silenciable.</li>
+        <li>Barra lateral con stock de los productos controlados, resaltando bajo y agotado.</li>
+      </ul>
+    </div>
+    <div class="screen">
+      <div class="path">/admin</div>
+      <h4>Admin</h4>
+      <ul>
+        <li>Menú con categorías, productos, fotos y stock. Editar stock pide motivo.</li>
+        <li>Meseros, mesas, clientes, configuración.</li>
+        <li>Reportes por jornada: cierre de caja, ventas por producto, stock restante, egresos. Exportar a CSV.</li>
+        <li>Respaldos, restauración, menú de ejemplo y descarga del log.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="ticket">
+  <div class="sec-label">07</div>
+  <h2>Ticket</h2>
+  <div class="ticket-wrap">
+    <div class="ticket" aria-label="Ejemplo de ticket">        CAFETERÍA EJEMPLO
+      Pedido #37 · Mesa 2
+      12/09/2026 08:44 · Carlos
+--------------------------------
+2  Capuchino           2.50  5.00
+1  Sándwich de pollo   4.50  4.50
+1  Bolón mixto         3.00  3.00
+   sin queso
+--------------------------------
+Subtotal                   12.50
+Descuento 10%              -1.25
+Propina                     1.00
+TOTAL                      12.25
+--------------------------------
+Efectivo                    6.25
+Tarjeta ****4410            6.00
+--------------------------------
+Cliente: Ana Ruiz
+CI 0912345678
+   Precios incluyen impuestos</div>
+    <div class="ticket-notes">
+      <p>Página imprimible desde el navegador con estilos para rollo de 80 mm y para hoja A4. Se abre sola al completar el cobro.</p>
+      <p>Los ítems anulados no aparecen. Los datos del cliente salen solo si se asoció uno. Cuando llegue la impresora térmica, se conecta en este mismo punto sin cambiar nada más.</p>
+      <p><em>Los datos del ejemplo son ficticios.</em></p>
+    </div>
+  </div>
+</section>
+
+<section id="errores">
+  <div class="sec-label">08</div>
+  <h2>Errores y pruebas</h2>
+  <div class="tbl-wrap"><table>
+    <tr><th>Situación</th><th>Qué hace el sistema</th></tr>
+    <tr><td>Dos meseros piden lo último</td><td>El primero se lo lleva. El segundo ve “Se acaba de agotar” y el ítem no se agrega.</td></tr>
+    <tr><td>Se cae el WiFi del celular</td><td>Franja roja “Sin conexión”, botones de envío desactivados, ronda en curso conservada. Al volver, reconecta y refresca.</td></tr>
+    <tr><td>Se reinicia la PC de caja</td><td>Todo está en PostgreSQL. Al abrir de nuevo, mesas, rondas y pagos parciales siguen ahí. La jornada sigue abierta.</td></tr>
+    <tr><td>Dato incoherente</td><td>Cobrar sin caja abierta, pagar de más, cerrar con mesas ocupadas, descuento mayor al subtotal, editar pedido cobrado, stock negativo: mensaje claro en pantalla, nunca pantalla en blanco.</td></tr>
+    <tr><td>Error inesperado</td><td>Mensaje genérico en pantalla y detalle en <code>logs/servidor.log</code>, descargable desde admin.</td></tr>
+    <tr><td>PostgreSQL no arranca</td><td>El lanzador muestra el error con “Ver registro” y “Reintentar”.</td></tr>
+  </table></div>
+
+  <h3>Pruebas automáticas</h3>
+  <ul>
+    <li><b>Unitarias</b>: totales, descuentos, stock, cierre de caja, idempotencia.</li>
+    <li><b>Integración</b>: cada ruta de la API contra una base PostgreSQL de prueba, incluyendo dos pedidos simultáneos del último ítem.</li>
+    <li><b>Extremo a extremo</b>: abrir caja → mesero pide → caja agrega → cocina marca listo → cobro dividido → egreso → cierre → reporte correcto.</li>
+  </ul>
+  <p>Todas corren con un solo comando. La construcción del ejecutable se prueba en Windows antes de entregar. Además, admin trae “Cargar menú de ejemplo” para probar el primer día sin cargar el menú real.</p>
+</section>
+
+<section id="roadmap">
+  <div class="sec-label">09</div>
+  <h2>Módulos siguientes</h2>
+  <p>El Núcleo deja los datos preparados para que los tres módulos que siguen se enganchen sin migrar nada. Orden acordado:</p>
+  <div class="roadmap">
+    <div class="step now"><div class="n">1</div><div><b>Núcleo POS</b><p>Este documento.</p></div></div>
+    <div class="step"><div class="n">2</div><div><b>Menú digital</b><p>Página pública con QR en cada mesa. Usa categorías, productos, fotos y descripciones tal como están. Requiere alojar una copia de solo lectura en internet.</p></div></div>
+    <div class="step"><div class="n">3</div><div><b>Facturación electrónica SRI</b><p>Comprobantes XML firmados con certificado .p12, envío al SRI y RIDE en PDF. Usa cliente, pedido, ítems y pagos. Agregará datos del emisor y tarifa de IVA por producto.</p></div></div>
+    <div class="step"><div class="n">4</div><div><b>Wallet de fidelización</b><p>Saldo o puntos por cliente, acumulación al cobrar, canje, y pases para Apple Wallet y Google Wallet. Usa cliente y pedidos cobrados.</p></div></div>
+  </div>
+  <h3>Fuera del alcance del Núcleo</h3>
+  <p>Login o PIN, impresora térmica directa, acceso desde internet, factura electrónica, puntos, menú digital público, desglose de IVA, varios locales, reservas, recetas por ingrediente.</p>
+</section>
+
+<section id="revision">
+  <div class="sec-label">10</div>
+  <h2>Qué revisar antes de construir</h2>
+  <div class="ask">
+    <h3>Puntos que conviene confirmar</h3>
+    <ul>
+      <li><b>Referencia en cada pago</b> (últimos dígitos de tarjeta, número de transferencia). Se agregó como opcional; se puede quitar.</li>
+      <li><b>Exportar reportes a CSV</b> para abrirlos en Excel. Agregado; se puede quitar.</li>
+      <li><b>Cantidad de mesas inicial</b> y nombre del local para la configuración de arranque.</li>
+      <li><b>Umbral de stock bajo</b>: propuesto en 5 unidades, editable después.</li>
+      <li><b>Propina sugerida</b>: porcentaje por defecto que caja verá al cobrar.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+</div>
+</div>
+</body>
+</html>
