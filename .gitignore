@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+fotos/
+Respaldos/
+logs/
+datos/
