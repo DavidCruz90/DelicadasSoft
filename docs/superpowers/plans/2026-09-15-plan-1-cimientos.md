@@ -120,11 +120,13 @@ tests/*.test.ts              una prueba por módulo
 
 ```bash
 cd /Users/david/Proyectos/Cafeteria
-npm install fastify@5 @fastify/static@8 @fastify/multipart@9 drizzle-orm@0.44 postgres@3 dotenv@16 preact@10
+npm install fastify@5 @fastify/static@10 @fastify/multipart@9 drizzle-orm@0.45.2 postgres@3 dotenv@16 preact@10
 npm install -D typescript@5 tsx@4 vitest@3 drizzle-kit@0.31 vite@6 @preact/preset-vite@2 @types/node@22
 ```
 
 Esperado: `package.json` con esas dependencias, `node_modules/` creado, sin errores.
+
+Nota de seguridad (decidida el 2026-09-15 tras ejecutar `npm audit`): `@fastify/static` debe ser 10.1.3 o superior y `drizzle-orm` 0.45.2 o superior. Las versiones anteriores tienen fallos de severidad alta: evasión de guardas de ruta por path traversal en el primero (grave aquí porque el servidor expone `/fotos/` y la web a toda la WiFi del local) e inyección SQL por identificadores mal escapados en el segundo. Las vulnerabilidades que quedan en `vitest`, `drizzle-kit` y `esbuild` son de desarrollo, no llegan a la PC de caja, y no se corrigen: el arreglo que npm propone para drizzle-kit es bajar a una versión anterior a la necesaria.
 
 - [ ] **Step 3: Crear tsconfig.json y tsconfig.servidor.json**
 
