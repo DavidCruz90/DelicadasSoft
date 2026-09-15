@@ -19,3 +19,8 @@
    - Caso 3, cliente: solo nombre obligatorio; SRI exigirá el resto al facturar.
    - Caso 4, ticket sin leyenda de impuestos.
    Spec sección 4.4 nueva, reglas 15 a 19, API de encargos, pantallas, ticket y pruebas actualizados. Propuesta HTML y artifact actualizados. Subido a `origin/main`.
+
+## 2026-09-15
+1. Dave: "listo, sigue". Se tomó como luz verde para planificar la implementación.
+2. Verificado en esta Mac: Node 24.19, npm 11.17, Docker 29.4. Sin psql, pg_ctl ni brew. PostgreSQL de desarrollo y pruebas irá en Docker (`cafeteria-pg`, puerto 5433).
+3. Con `superpowers:writing-plans` se decidió dividir en 4 planes. Se escribió el plan 1 (Cimientos): proyecto, esquema completo de 16 tablas en Drizzle, migraciones, servidor Fastify con errores y SSE, API de configuración, meseros y catálogo con stock y fotos, web Preact + Vite servida por Fastify, pantalla de admin. Subido a `origin/main`.
