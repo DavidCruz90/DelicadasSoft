@@ -10,7 +10,17 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-12-nucleo-pos-design.md` secciones 3.1, 3.3, 7.4 (respaldos, log), 8 (errores del servidor, PostgreSQL no arranca), 9 (E2E). **Requiere planes 1, 2 y 3 terminados.**
 
-**Modelo para ejecutar cada tarea:** `claude-fable-5-1`. **Skill por tarea:** `superpowers:test-driven-development` (Tasks 1, 2, 4) y `superpowers:verification-before-completion` (todas). La Task 3 se verifica en la PC Windows de caja; si no hay Windows disponible, se deja documentado como pendiente en `docs/ESTADO.md` y NO se declara terminada.
+**Modelos y skills:** no hay modelo por defecto. Cada tarea indica abajo su modelo ejecutor, su skill, su revisor y su motivo. Resumen de este plan:
+
+| Tarea | Modelo ejecutor | Skill principal | Revisor |
+|---|---|---|---|
+| Task 1 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 2 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 3 | `claude-fable-5-1` | `superpowers:test-driven-development` para conectar.ts y `superpowers:systematic-debugging` si el arranque en Windows falla | `claude-fable-5-1` |
+| Task 4 | `claude-fable-5-1` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 5 | `claude-sonnet-5` | `superpowers:verification-before-completion` (redacción y comprobación de textos; sin TDD porque no hay código) | `claude-fable-5-1` |
+
+**Revisión de cada tarea:** el revisor usa `superpowers:requesting-code-review` con modelo `claude-fable-5-1`: primero revisa contra la spec (¿hace lo que el plan pide, ni más ni menos?), luego calidad del código. Si hay observaciones, el ejecutor las atiende con `superpowers:receiving-code-review` y se vuelve a revisar. La tarea solo se marca terminada cuando el revisor aprueba y `superpowers:verification-before-completion` confirma la salida del comando de verificación.
 
 ## Global Constraints
 
@@ -37,6 +47,10 @@ docs/MANUAL.md                        manual de instalación y uso para Dave
 ---
 
 ### Task 1: Registro de errores en archivo
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/logs.ts`, `tests/logs.test.ts`
@@ -167,6 +181,10 @@ git add -A && git commit -m "Registro de errores en archivo diario con descarga 
 ---
 
 ### Task 2: Respaldos y restauración
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/pg.ts`, `src/servidor/respaldos.ts`, `tests/respaldos.test.ts`, `src/web/admin/Respaldos.tsx`
@@ -399,6 +417,10 @@ git add -A && git commit -m "Respaldos con pg_dump/pg_restore, automático al ce
 ---
 
 ### Task 3: Lanzador, página de conexión y empaquetado para Windows
+**Modelo ejecutor:** `claude-fable-5-1`. **Motivo:** la tarea exige criterio propio (concurrencia, dinero, depuración o selectores que el plan no puede anticipar del todo).
+**Skill del ejecutor:** `superpowers:test-driven-development` para conectar.ts y `superpowers:systematic-debugging` si el arranque en Windows falla. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/conectar.ts`, `src/servidor/lanzador.ts`, `scripts/empaquetar.mjs`, `sea-config.json`, `docs/MANUAL.md` (sección de instalación; el resto en Task 5)
@@ -646,6 +668,10 @@ git add -A && git commit -m "Lanzador con PostgreSQL portátil, página /conecta
 ---
 
 ### Task 4: Prueba de extremo a extremo con Playwright
+**Modelo ejecutor:** `claude-fable-5-1`. **Motivo:** la tarea exige criterio propio (concurrencia, dinero, depuración o selectores que el plan no puede anticipar del todo).
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `playwright.config.ts`, `e2e/dia-completo.spec.ts`
@@ -821,6 +847,10 @@ git add -A && git commit -m "Prueba extremo a extremo de un día completo con Pl
 ---
 
 ### Task 5: Manual para Dave
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:verification-before-completion` (redacción y comprobación de textos; sin TDD porque no hay código). **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `docs/MANUAL.md`
@@ -842,6 +872,9 @@ git add -A && git commit -m "Manual de instalación y uso" && git push origin ma
 ---
 
 ## Cierre del plan 4 y del Núcleo POS
+
+**Modelo:** `claude-sonnet-5`. **Motivo:** son comandos y actualizaciones de documentos ya definidos. **Skill:** `superpowers:verification-before-completion`. **Revisor:** `claude-fable-5-1` confirma que ESTADO.md y BITACORA.md reflejan la salida real.
+
 
 - [ ] `npm run typecheck && npm run build && npm test && npm run e2e`; pegar salida resumida en `docs/BITACORA.md`.
 - [ ] Copiar `build/Cafeteria` a la PC de caja y ejecutar el primer día real con el menú de ejemplo. Anotar resultado en `docs/BITACORA.md`.

@@ -10,7 +10,18 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-12-nucleo-pos-design.md` secciones 4.4 (encargos), 5 reglas 6, 12, 13, 15 a 19, 6 (rutas de cocina, egresos, encargos, reportes, datos de ejemplo), 7.2, 7.3 (egresos y encargos), 7.4 (clientes, reportes, datos de ejemplo), 7.5 (constancia). **Requiere planes 1 y 2 terminados.**
 
-**Modelo para ejecutar cada tarea:** `claude-fable-5-1`. **Skill por tarea:** `superpowers:test-driven-development`. **Al cerrar cada tarea:** `superpowers:verification-before-completion`.
+**Modelos y skills:** no hay modelo por defecto. Cada tarea indica abajo su modelo ejecutor, su skill, su revisor y su motivo. Resumen de este plan:
+
+| Tarea | Modelo ejecutor | Skill principal | Revisor |
+|---|---|---|---|
+| Task 1 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 2 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 3 | `claude-fable-5-1` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 4 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 5 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 6 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+
+**Revisión de cada tarea:** el revisor usa `superpowers:requesting-code-review` con modelo `claude-fable-5-1`: primero revisa contra la spec (¿hace lo que el plan pide, ni más ni menos?), luego calidad del código. Si hay observaciones, el ejecutor las atiende con `superpowers:receiving-code-review` y se vuelve a revisar. La tarea solo se marca terminada cuando el revisor aprueba y `superpowers:verification-before-completion` confirma la salida del comando de verificación.
 
 ## Global Constraints
 
@@ -39,6 +50,10 @@ tests/cocina.test.ts, egresos.test.ts, encargos.test.ts, reportes.test.ts, ejemp
 ---
 
 ### Task 1: Cocina
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/modulos/cocina.ts`, `tests/cocina.test.ts`
@@ -220,6 +235,10 @@ git add -A && git commit -m "Cocina: rondas pendientes, marcar lista y pantalla 
 ---
 
 ### Task 2: Egresos
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/modulos/egresos.ts`, `tests/egresos.test.ts`, `src/web/caja/Egresos.tsx`
@@ -375,6 +394,10 @@ git add -A && git commit -m "Egresos por tipo con efecto en el arqueo" && git pu
 ---
 
 ### Task 3: Encargos con abonos (servidor)
+**Modelo ejecutor:** `claude-fable-5-1`. **Motivo:** la tarea exige criterio propio (concurrencia, dinero, depuración o selectores que el plan no puede anticipar del todo).
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/modulos/encargos.ts`, `tests/encargos.test.ts`
@@ -766,6 +789,10 @@ git add -A && git commit -m "Encargos con abonos, caja de encargos, entrega, can
 ---
 
 ### Task 4: Encargos en la pantalla de caja
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/web/caja/Encargos.tsx`
@@ -895,6 +922,10 @@ git add -A && git commit -m "Encargos en caja: lista, nuevo, abonar, constancia,
 ---
 
 ### Task 5: Reportes por jornada, CSV, clientes en admin
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/modulos/reportes.ts`, `tests/reportes.test.ts`, `src/web/admin/Reportes.tsx`, `src/web/admin/Clientes.tsx`
@@ -1115,6 +1146,10 @@ git add -A && git commit -m "Reportes por jornada con CSV y gestión de clientes
 ---
 
 ### Task 6: Datos de ejemplo
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/modulos/ejemplo.ts`, `tests/ejemplo.test.ts`
@@ -1236,6 +1271,9 @@ git add -A && git commit -m "Datos de ejemplo cargables y borrables desde admin"
 ---
 
 ## Cierre del plan 3
+
+**Modelo:** `claude-sonnet-5`. **Motivo:** son comandos y actualizaciones de documentos ya definidos. **Skill:** `superpowers:verification-before-completion`. **Revisor:** `claude-fable-5-1` confirma que ESTADO.md y BITACORA.md reflejan la salida real.
+
 
 - [ ] `npm run typecheck && npm run build && npm test`; pegar salida resumida en `docs/BITACORA.md`.
 - [ ] Actualizar `docs/ESTADO.md`: "Plan 3 terminado"; siguiente paso: ejecutar plan 4.

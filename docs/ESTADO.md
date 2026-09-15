@@ -22,14 +22,13 @@ Actualizado: 2026-09-15 (tarde)
 
 ## Siguiente paso exacto
 - Ejecutar el plan 1, tarea por tarea y en orden.
-- Modelo: `claude-fable-5-1`.
-- Skill: `superpowers:subagent-driven-development` (o `superpowers:executing-plans` en sesión nueva sin subagentes), con `superpowers:test-driven-development` en cada tarea y `superpowers:verification-before-completion` al cerrar cada una.
+- Orquestador: `claude-fable-5-1` con `superpowers:subagent-driven-development` (o `superpowers:executing-plans` en sesión nueva sin subagentes). Despacha cada tarea al modelo que el plan indica en su encabezado (`claude-sonnet-5` en las 7 tareas del plan 1) con `superpowers:test-driven-development`, y la revisión a `claude-fable-5-1` con `superpowers:requesting-code-review`. Cierre de cada tarea con `superpowers:verification-before-completion`.
 - Entrada: `CLAUDE.md`, `docs/superpowers/plans/2026-09-15-plan-1-cimientos.md`, `docs/superpowers/specs/2026-09-12-nucleo-pos-design.md`.
 - Prerrequisito de entorno: Docker en marcha (`docker ps` responde). Node 22+.
 - Salida: código en `src/` y `tests/`, un commit por tarea en `origin/main`.
 - Terminado cuando: `npm run typecheck && npm run build && npm test` pasa y la verificación manual de la Task 7 del plan 1 se cumplió, y `docs/ESTADO.md` dice "Plan 1 terminado".
 
 ## Pasos posteriores, en orden
-1. Ejecutar plan 2 (mismo modelo y skills). Terminado cuando el día completo de la Task 8 se verificó a mano.
+1. Ejecutar plan 2 (modelos por tarea en su encabezado: Fable en tareas 3 y 4, Sonnet en el resto). Terminado cuando el día completo de la Task 8 se verificó a mano.
 2. Ejecutar plan 3. 3. Ejecutar plan 4; su Task 3 exige probar en la PC Windows de caja.
 4. Al entregar el Núcleo: `superpowers:brainstorming` para el módulo 2, Menú digital.

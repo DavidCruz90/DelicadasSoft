@@ -4,6 +4,8 @@
 2. Nada queda en la sesión ni en la memoria del modelo. Antes de terminar cada turno se escribe en el repositorio y se hace `git push origin main`.
 3. Sin supuestos. Lo que no está escrito en `docs/` se pregunta o se anota como pendiente en `docs/ESTADO.md`.
 4. Todo se escribe para que cualquier agente lo despache: cada tarea indica **modelo** exacto, **skill** exacta, archivos de entrada, archivos de salida y comando de verificación con resultado esperado. Pasos numerados, en orden.
+   - **Nunca un modelo por defecto.** Cada tarea nombra su modelo y el motivo. Regla de elección: `claude-sonnet-5` cuando el plan ya trae código, pruebas y verificación completos (ejecutar fielmente); `claude-fable-5-1` cuando hay que decidir, diseñar, depurar o manejar dinero y concurrencia; `claude-fable-5-1` siempre como revisor de cada tarea y para escribir specs y planes.
+   - Cada tarea lleva revisor: `superpowers:requesting-code-review` contra la spec y luego calidad; el ejecutor responde con `superpowers:receiving-code-review`.
 5. Archivos obligatorios: `docs/ESTADO.md` (estado y siguiente paso), `docs/BITACORA.md` (qué se hizo, por fecha), `docs/superpowers/specs/` (diseños), `docs/superpowers/plans/` (planes).
 6. Flujo: `superpowers:brainstorming` → spec → `superpowers:writing-plans` → plan → `superpowers:subagent-driven-development` con `superpowers:test-driven-development` → `superpowers:verification-before-completion` → push.
 7. Cada cambio de diseño se refleja en la spec, en `docs/propuesta-nucleo-pos.html` y en `docs/ESTADO.md`.

@@ -10,7 +10,19 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-12-nucleo-pos-design.md` (secciones 3, 4.1, 4.3, 6 y 7.4). Leer también `CLAUDE.md`.
 
-**Modelo para ejecutar cada tarea:** `claude-fable-5-1`. **Skill por tarea:** `superpowers:test-driven-development`. **Skill al terminar cada tarea:** `superpowers:verification-before-completion`.
+**Modelos y skills:** no hay modelo por defecto. Cada tarea indica abajo su modelo ejecutor, su skill, su revisor y su motivo. Resumen de este plan:
+
+| Tarea | Modelo ejecutor | Skill principal | Revisor |
+|---|---|---|---|
+| Task 1 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 2 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 3 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 4 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 5 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 6 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 7 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+
+**Revisión de cada tarea:** el revisor usa `superpowers:requesting-code-review` con modelo `claude-fable-5-1`: primero revisa contra la spec (¿hace lo que el plan pide, ni más ni menos?), luego calidad del código. Si hay observaciones, el ejecutor las atiende con `superpowers:receiving-code-review` y se vuelve a revisar. La tarea solo se marca terminada cuando el revisor aprueba y `superpowers:verification-before-completion` confirma la salida del comando de verificación.
 
 ## Global Constraints
 
@@ -70,6 +82,10 @@ tests/*.test.ts              una prueba por módulo
 ---
 
 ### Task 1: Proyecto base y PostgreSQL en Docker
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `package.json`, `tsconfig.json`, `vitest.config.ts`, `.env.example`, `.gitignore`, `tests/humo.test.ts`
@@ -226,6 +242,10 @@ git push origin main
 ---
 
 ### Task 2: Esquema completo en Drizzle y migraciones
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/config.ts`, `src/servidor/db/schema.ts`, `src/servidor/db/conexion.ts`, `src/servidor/db/migrar.ts`, `src/servidor/db/migrar-cli.ts`, `drizzle.config.ts`, `src/servidor/db/migraciones/` (generado), `tests/ayuda/db.ts`, `tests/esquema.test.ts`
@@ -635,6 +655,10 @@ git push origin main
 ---
 
 ### Task 3: Servidor Fastify, errores, eventos en vivo y `/api/estado`
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/errores.ts`, `src/servidor/eventos.ts`, `src/servidor/app.ts`, `src/servidor/index.ts`, `src/servidor/modulos/configuracion.ts`, `tests/ayuda/app.ts`, `tests/app.test.ts`
@@ -857,6 +881,10 @@ git push origin main
 ---
 
 ### Task 4: API de configuración y meseros
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Modify: `src/servidor/modulos/configuracion.ts`
@@ -1066,6 +1094,10 @@ git push origin main
 ---
 
 ### Task 5: Catálogo: categorías, productos, stock y fotos
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/modulos/catalogo.ts`, `tests/catalogo.test.ts`
@@ -1379,6 +1411,10 @@ git push origin main
 ---
 
 ### Task 6: Web base con Preact + Vite servida por Fastify
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `vite.config.ts`, `src/web/index.html`, `src/web/main.tsx`, `src/web/api.ts`, `src/web/eventos.ts`, `src/web/estilos.css`, `src/web/admin/AppAdmin.tsx`, `src/web/mesero/AppMesero.tsx`, `src/web/caja/AppCaja.tsx`, `src/web/cocina/AppCocina.tsx`, `tests/web.test.ts`
@@ -1655,6 +1691,10 @@ git push origin main
 ---
 
 ### Task 7: Pantalla de admin: configuración, meseros y menú
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Modify: `src/web/admin/AppAdmin.tsx`
@@ -1933,6 +1973,9 @@ git push origin main
 ---
 
 ## Cierre del plan 1
+
+**Modelo:** `claude-sonnet-5`. **Motivo:** son comandos y actualizaciones de documentos ya definidos. **Skill:** `superpowers:verification-before-completion`. **Revisor:** `claude-fable-5-1` confirma que ESTADO.md y BITACORA.md reflejan la salida real.
+
 
 - [ ] Ejecutar `npm run typecheck && npm run build && npm test` una última vez. Pegar la salida resumida en `docs/BITACORA.md` bajo la fecha de ejecución.
 - [ ] Actualizar `docs/ESTADO.md`: "Plan 1 terminado" y siguiente paso: escribir el plan 2 (Operación) con modelo `claude-fable-5-1` y skill `superpowers:writing-plans`, entrada: la spec y este plan.

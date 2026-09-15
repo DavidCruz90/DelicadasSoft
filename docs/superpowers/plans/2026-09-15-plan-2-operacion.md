@@ -10,7 +10,20 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-12-nucleo-pos-design.md` secciones 4.2, 4.3, 4.5, 5 (reglas 1 a 15), 6, 7.1, 7.3, 7.5. **Requiere plan 1 terminado** (`docs/superpowers/plans/2026-09-15-plan-1-cimientos.md`).
 
-**Modelo para ejecutar cada tarea:** `claude-fable-5-1`. **Skill por tarea:** `superpowers:test-driven-development`. **Al cerrar cada tarea:** `superpowers:verification-before-completion`.
+**Modelos y skills:** no hay modelo por defecto. Cada tarea indica abajo su modelo ejecutor, su skill, su revisor y su motivo. Resumen de este plan:
+
+| Tarea | Modelo ejecutor | Skill principal | Revisor |
+|---|---|---|---|
+| Task 1 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 2 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 3 | `claude-fable-5-1` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 4 | `claude-fable-5-1` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 5 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 6 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 7 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 8 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+
+**Revisión de cada tarea:** el revisor usa `superpowers:requesting-code-review` con modelo `claude-fable-5-1`: primero revisa contra la spec (¿hace lo que el plan pide, ni más ni menos?), luego calidad del código. Si hay observaciones, el ejecutor las atiende con `superpowers:receiving-code-review` y se vuelve a revisar. La tarea solo se marca terminada cuando el revisor aprueba y `superpowers:verification-before-completion` confirma la salida del comando de verificación.
 
 ## Global Constraints
 
@@ -47,6 +60,10 @@ tests/ayuda/datos.ts                helpers: abrirCajaDePrueba, crearMenuDePrueb
 ---
 
 ### Task 1: Totales (función pura)
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/modulos/totales.ts`, `tests/totales.test.ts`
@@ -144,6 +161,10 @@ git add -A && git commit -m "Totales de cuenta: cálculo puro con descuento, pro
 ---
 
 ### Task 2: Jornada: abrir y cerrar caja
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/modulos/jornada.ts`, `tests/ayuda/datos.ts`, `tests/jornada.test.ts`
@@ -371,6 +392,10 @@ git add -A && git commit -m "Jornada: abrir y cerrar caja con arqueo y resumen" 
 ---
 
 ### Task 3: Pedidos, mesas y rondas con descuento de stock
+**Modelo ejecutor:** `claude-fable-5-1`. **Motivo:** la tarea exige criterio propio (concurrencia, dinero, depuración o selectores que el plan no puede anticipar del todo).
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/modulos/pedidos.ts`, `tests/pedidos.test.ts`
@@ -782,6 +807,10 @@ git add -A && git commit -m "Pedidos, mesas y rondas con descuento de stock tran
 ---
 
 ### Task 4: Cuentas, división y pagos
+**Modelo ejecutor:** `claude-fable-5-1`. **Motivo:** la tarea exige criterio propio (concurrencia, dinero, depuración o selectores que el plan no puede anticipar del todo).
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/modulos/cuentas.ts`, `tests/cuentas.test.ts`
@@ -1103,6 +1132,10 @@ git add -A && git commit -m "Cuentas: división por ítems, descuento, propina y
 ---
 
 ### Task 5: Clientes
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/modulos/clientes.ts`, `tests/clientes.test.ts`
@@ -1225,6 +1258,10 @@ git add -A && git commit -m "Clientes con solo nombre obligatorio y búsqueda" &
 ---
 
 ### Task 6: Ticket imprimible por cuenta
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/servidor/modulos/ticket.ts`, `tests/ticket.test.ts`
@@ -1364,6 +1401,10 @@ git add -A && git commit -m "Ticket imprimible por cuenta sin leyenda de impuest
 ---
 
 ### Task 7: Pantalla del mesero
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/web/comun/dinero.ts`, `src/web/comun/Catalogo.tsx`, `src/web/mesero/Mesas.tsx`, `src/web/mesero/PedidoMesero.tsx`
@@ -1640,6 +1681,10 @@ git add -A && git commit -m "Pantalla del mesero: mesas, pedido, nueva ronda con
 ---
 
 ### Task 8: Pantalla de caja
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+**Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
 
 **Files:**
 - Create: `src/web/caja/AbrirCaja.tsx`, `src/web/caja/CerrarCaja.tsx`, `src/web/caja/PedidoCaja.tsx`, `src/web/caja/CuentaCaja.tsx`, `src/web/caja/Dividir.tsx`, `src/web/caja/ClienteSelector.tsx`
@@ -2025,6 +2070,9 @@ git add -A && git commit -m "Pantalla de caja: jornada, pedidos, división de cu
 ---
 
 ## Cierre del plan 2
+
+**Modelo:** `claude-sonnet-5`. **Motivo:** son comandos y actualizaciones de documentos ya definidos. **Skill:** `superpowers:verification-before-completion`. **Revisor:** `claude-fable-5-1` confirma que ESTADO.md y BITACORA.md reflejan la salida real.
+
 
 - [ ] `npm run typecheck && npm run build && npm test` una última vez; pegar la salida resumida en `docs/BITACORA.md`.
 - [ ] Reflejar en la spec (sección 4.2 cuenta) el ajuste: "se puede eliminar cualquier cuenta vacía siempre que quede al menos una". Reflejar el mismo texto en `docs/propuesta-nucleo-pos.html` (fila de la tabla `cuenta`).
