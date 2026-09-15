@@ -410,7 +410,7 @@ git add -A && git commit -m "Jornada: abrir y cerrar caja con arqueo y resumen" 
   - `type ItemEntrada = { producto_id?: string | null; es_libre?: boolean; nombre?: string; precio?: number | string; cantidad: number; nota?: string }`
   - `enviarRonda(db, pedidoId, { id: string; origen: 'mesero'|'caja'; enviada_a_cocina?: boolean; items: ItemEntrada[] }): Promise<{ ronda, repetida: boolean }>` — transacción con `FOR UPDATE` por producto; 409 `Se acaba de agotar: <nombre>` si no alcanza; 400 `La ronda no tiene ítems`; ítem libre 409 `Los ítems libres están desactivados` si config lo prohíbe; los ítems van a la cuenta abierta de menor número.
   - `anularItem(db, itemId, { motivo })` → 409 si cuenta cobrada o pedido no abierto; devuelve stock si `afecta_stock`.
-  - `anularPedido(db, pedidoId, { motivo })` → 409 `El pedido tiene pagos registrados` si alguna cuenta tiene pagos.
+  - `anularPedido(db, pedidoId, { motivo, pagos?: 'devolver' | 'retener' })` → si ninguna cuenta tiene pagos: anula todo. Si hay pagos y falta `pagos`: 400 `Indica si el dinero pagado se devuelve o se retiene`. `devolver`: egreso `devolucion_cliente` automático por lo pagado, pedido `anulado`. `retener`: cuentas con pagos quedan `cobrada` con descuento `monto = subtotal − pagado` y propina 0; cuentas sin pagos se anulan; pedido `cobrado` con nota. Devuelve `{ pedido, stocks, egreso_id? }`.
   - `marcarAvisoVisto(db, rondaId, pantalla: 'mesero'|'caja')`.
   - Rutas: `GET /api/mesas`, `POST /api/pedidos`, `GET /api/pedidos/:id`, `POST /api/pedidos/:id/rondas` (201 nueva, 200 repetida), `POST /api/pedidos/:id/items/:itemId/anular`, `POST /api/pedidos/:id/anular`, `PATCH /api/pedidos/:id` (notas), `POST /api/rondas/:id/aviso-visto`.
 - Eventos: `mesa` con `{ pedido_id, numero_mesa }` en crear, ronda, anulaciones; `stock` con `{ producto_id, stock_actual }` por cada producto afectado.
@@ -530,6 +530,38 @@ test('item libre respeta la configuracion', async () => {
   expect(sinNombre.statusCode).toBe(400);
 });
 
+test('anular pedido con pagos: exige decision, devolver crea egreso, retener deja venta parcial', async () => {
+  const mk = async (mesa: number) => {
+    const p = (await post('/api/pedidos', { numero_mesa: mesa, mesero_id: meseroId })).json();
+    await post(`/api/pedidos/${p.id}/rondas`, { id: randomUUID(), origen: 'mesero', items: [{ producto_id: menu.capuchinoId, cantidad: 4 }] }); // 10.00
+    const det = (await get(`/api/pedidos/${p.id}`)).json();
+    await post(`/api/cuentas/${det.cuentas[0].id}/pagos`, { id: randomUUID(), metodo: 'efectivo', monto: 4 });
+    return p.id;
+  };
+  const a = await mk(8);
+  const falta = await post(`/api/pedidos/${a}/anular`, { motivo: 'Se fue' });
+  expect(falta.statusCode).toBe(400);
+  expect(falta.json().error).toBe('Indica si el dinero pagado se devuelve o se retiene');
+  const dev = await post(`/api/pedidos/${a}/anular`, { motivo: 'Se fue', pagos: 'devolver' });
+  expect(dev.statusCode).toBe(200);
+  expect(dev.json().estado).toBe('anulado');
+  const egresos = await ctx.sql`SELECT tipo, monto, motivo, pedido_id FROM egreso WHERE pedido_id = ${a}`;
+  expect(egresos).toHaveLength(1);
+  expect(egresos[0]).toMatchObject({ tipo: 'devolucion_cliente', monto: '4.00' });
+  expect(egresos[0].motivo).toContain('Se fue');
+  const b = await mk(9);
+  const ret = await post(`/api/pedidos/${b}/anular`, { motivo: 'No volvió', pagos: 'retener' });
+  expect(ret.statusCode).toBe(200);
+  expect(ret.json().estado).toBe('cobrado');
+  const det = (await get(`/api/pedidos/${b}`)).json();
+  expect(det.cuentas[0].estado).toBe('cobrada');
+  expect(det.cuentas[0].totales).toMatchObject({ subtotal: 10, descuento: 6, total: 4, pagado: 4, saldo: 0 });
+  expect(det.cuentas[0].items[0].anulado).toBe(false);
+  expect(det.notas).toContain('Anulado parcialmente');
+  const mesas = await get('/api/mesas');
+  expect(mesas.json().mesas.find((m: any) => m.numero === 9).estado).toBe('libre');
+});
+
 test('anular item devuelve stock; anular pedido libera la mesa', async () => {
   const p = (await post('/api/pedidos', { numero_mesa: 7, mesero_id: meseroId })).json();
   await post(`/api/pedidos/${p.id}/rondas`, { id: randomUUID(), origen: 'mesero', items: [{ producto_id: menu.sandwichId, cantidad: 3 }] });
@@ -575,7 +607,7 @@ test('para llevar admite varios pedidos abiertos', async () => {
 import { and, asc, eq, inArray, max, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db/conexion';
-import { pedido, cuenta, ronda, pedidoItem, pago, producto, movimientoStock, mesero } from '../db/schema';
+import { pedido, cuenta, ronda, pedidoItem, pago, producto, movimientoStock, mesero, egreso } from '../db/schema';
 import { ErrorNegocio, ErrorValidacion, NoEncontrado } from '../errores';
 import { requerirJornadaAbierta } from './jornada';
 import { obtenerConfiguracion } from './configuracion';
@@ -733,20 +765,45 @@ export async function anularItem(db: Db, pedidoId: string, itemId: string, datos
   });
 }
 
-export async function anularPedido(db: Db, pedidoId: string, datos: { motivo: string }) {
-  await requerirJornadaAbierta(db);
+export async function anularPedido(db: Db, pedidoId: string, datos: { motivo: string; pagos?: 'devolver' | 'retener' }) {
+  const j = await requerirJornadaAbierta(db);
   const motivo = String(datos?.motivo ?? '').trim();
   if (!motivo) throw new ErrorValidacion('La anulación necesita un motivo');
   const p = await pedidoAbierto(db, pedidoId);
   const d = await cargarDetalle(db, [p.id]);
-  if (d.pagos.length) throw new ErrorNegocio('El pedido tiene pagos registrados');
   const stocks: { producto_id: string; stock_actual: number }[] = [];
-  for (const it of d.items.filter((i) => !i.anulado)) {
-    const r = await anularItem(db, p.id, it.id, { motivo });
-    if (r.stock) stocks.push(r.stock);
+  const anularCuenta = async (c: typeof d.cuentas[number]) => {
+    for (const it of d.items.filter((i) => i.cuenta_id === c.id && !i.anulado)) {
+      const r = await anularItem(db, p.id, it.id, { motivo });
+      if (r.stock) stocks.push(r.stock);
+    }
+  };
+  const totalPagado = redondear(d.pagos.reduce((s, x) => s + Number(x.monto), 0));
+  if (totalPagado <= 0) {
+    for (const c of d.cuentas) await anularCuenta(c);
+    const [anulado] = await db.update(pedido).set({ estado: 'anulado', notas: sql`coalesce(${pedido.notas}, '') || ${' Anulado: ' + motivo}`, actualizado_en: new Date() }).where(eq(pedido.id, p.id)).returning();
+    return { pedido: anulado, stocks };
   }
-  const [anulado] = await db.update(pedido).set({ estado: 'anulado', notas: sql`coalesce(${pedido.notas}, '') || ${' Anulado: ' + motivo}`, actualizado_en: new Date() }).where(eq(pedido.id, p.id)).returning();
-  return { pedido: anulado, stocks };
+  if (datos.pagos !== 'devolver' && datos.pagos !== 'retener') throw new ErrorValidacion('Indica si el dinero pagado se devuelve o se retiene');
+  if (datos.pagos === 'devolver') {
+    for (const c of d.cuentas) await anularCuenta(c);
+    const [eg] = await db.insert(egreso).values({ jornada_id: j.id, tipo: 'devolucion_cliente', monto: totalPagado.toFixed(2), motivo: `Devolución por anulación del pedido #${p.numero}: ${motivo}`, pedido_id: p.id }).returning();
+    const [anulado] = await db.update(pedido).set({ estado: 'anulado', notas: sql`coalesce(${pedido.notas}, '') || ${' Anulado: ' + motivo}`, actualizado_en: new Date() }).where(eq(pedido.id, p.id)).returning();
+    return { pedido: anulado, stocks, egreso_id: eg.id };
+  }
+  const ahora = new Date();
+  for (const c of d.cuentas) {
+    const pagosCuenta = d.pagos.filter((x) => x.cuenta_id === c.id);
+    if (!pagosCuenta.length) { await anularCuenta(c); continue; }
+    if (c.estado === 'cobrada') continue;
+    const items = d.items.filter((i) => i.cuenta_id === c.id);
+    const pagado = redondear(pagosCuenta.reduce((s, x) => s + Number(x.monto), 0));
+    const subtotal = calcularTotales(items, { descuento_tipo: 'ninguno', descuento_valor: 0, propina: 0 }, []).subtotal;
+    const descuento = redondear(Math.max(0, subtotal - pagado));
+    await db.update(cuenta).set({ descuento_tipo: descuento > 0 ? 'monto' : 'ninguno', descuento_valor: descuento.toFixed(2), propina: '0.00', estado: 'cobrada', cobrada_en: ahora, actualizado_en: ahora }).where(eq(cuenta.id, c.id));
+  }
+  const [cobrado] = await db.update(pedido).set({ estado: 'cobrado', cobrado_en: ahora, notas: sql`coalesce(${pedido.notas}, '') || ${' Anulado parcialmente: ' + motivo}`, actualizado_en: ahora }).where(eq(pedido.id, p.id)).returning();
+  return { pedido: cobrado, stocks };
 }
 
 export async function marcarAvisoVisto(db: Db, rondaId: string, pantalla: 'mesero' | 'caja') {
@@ -784,6 +841,7 @@ export function rutasPedidos(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>('/api/pedidos/:id/anular', async (req) => {
     const r = await anularPedido(app.db, req.params.id, req.body as any);
     app.bus.emitir('mesa', { pedido_id: req.params.id, numero_mesa: r.pedido.numero_mesa }); emitirStock(r.stocks);
+    if ((r as any).egreso_id) app.bus.emitir('jornada');
     return r.pedido;
   });
   app.post<{ Params: { id: string } }>('/api/rondas/:id/aviso-visto', async (req) => {
@@ -1944,7 +2002,10 @@ export function PedidoCaja({ pedidoId, config, onVolver, setError }: { pedidoId:
   };
   const anularPedido = async () => {
     const motivo = prompt('Motivo para anular todo el pedido'); if (!motivo?.trim()) return;
-    try { await api.post(`/api/pedidos/${pedidoId}/anular`, { motivo }); onVolver(); } catch (e: any) { setError(e.message); }
+    const pagado = pedido.cuentas.reduce((s: number, c: any) => s + c.totales.pagado, 0);
+    let pagos: 'devolver' | 'retener' | undefined;
+    if (pagado > 0) pagos = confirm(`Este pedido tiene ${dinero(pagado, simbolo)} pagados.\n\nAceptar = DEVOLVER el dinero (se registra un egreso de devolución).\nCancelar = RETENER lo pagado como venta parcial.`) ? 'devolver' : 'retener';
+    try { await api.post(`/api/pedidos/${pedidoId}/anular`, { motivo, pagos }); onVolver(); } catch (e: any) { setError(e.message); }
   };
   const descartarAviso = async (r: any) => { try { await api.post(`/api/rondas/${r.id}/aviso-visto`, { pantalla: 'caja' }); } catch {} };
   if (!pedido) return <p>Cargando…</p>;
@@ -2081,6 +2142,6 @@ git add -A && git commit -m "Pantalla de caja: jornada, pedidos, división de cu
 
 ## Self-review (hecho al escribir el plan)
 
-- **Cobertura de spec:** reglas 1 a 15 → Tasks 2 a 5; 4.2 y 4.3 → Tasks 3, 4, 5; 4.5 → Task 1; 6 (rutas de pedidos, cuentas, clientes, ticket, jornadas) → Tasks 2 a 6; 7.1 mesero → Task 7; 7.3 caja salvo egresos y encargos → Task 8; 7.5 ticket → Task 6. Quedan para plan 3: cocina y `POST /rondas/:id/lista`, egresos, encargos y abonos, reportes, datos de ejemplo, exportar CSV, historial de jornadas en admin. Plan 4: respaldos, logs, lanzador, empaquetado, E2E.
+- **Cobertura de spec:** reglas 1 a 15 → Tasks 2 a 5 (regla 10 con devolver/retener en Task 3 y Task 8); 4.2 y 4.3 → Tasks 3, 4, 5; 4.5 → Task 1; 6 (rutas de pedidos, cuentas, clientes, ticket, jornadas) → Tasks 2 a 6; 7.1 mesero → Task 7; 7.3 caja salvo egresos y encargos → Task 8; 7.5 ticket → Task 6. Quedan para plan 3: cocina y `POST /rondas/:id/lista`, egresos, encargos y abonos, reportes, datos de ejemplo, exportar CSV, historial de jornadas en admin. Plan 4: respaldos, logs, lanzador, empaquetado, E2E.
 - **Consistencia de nombres:** `requerirJornadaAbierta`, `calcularTotales`, `validarDescuento`, `redondear`, `enviarRonda` devuelve `{ ronda, repetida, stockCambiado }`, `registrarPago` devuelve `{ pago, cuenta, pedido, totales, repetido }`, `Catalogo`/`ListaBorrador`/`borradorAItems`/`ItemBorrador`, `dinero`, `api.del` (definido en plan 1 Task 6) usados con la misma firma en servidor y web.
 - **Sin placeholders.**
