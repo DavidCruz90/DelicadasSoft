@@ -22,6 +22,13 @@
       "when": 1789504818559,
       "tag": "0002_useful_sleeper",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789507206512,
+      "tag": "0003_mesero_nombre_activo_unico",
+      "breakpoints": true
     }
   ]
 }

@@ -27,3 +27,51 @@ test('PATCH ignora campos desconocidos', async () => {
   const r = await ctx.app.inject({ method: 'PATCH', url: '/api/admin/configuracion', payload: { id: 'x', otro: 1 } });
   expect(r.statusCode).toBe(200);
 });
+
+test('PATCH rechaza un booleano enviado como texto en vez de guardarlo mal', async () => {
+  const r = await ctx.app.inject({ method: 'PATCH', url: '/api/admin/configuracion', payload: { cocina_activa: 'true' } });
+  expect(r.statusCode).toBe(400);
+  const g = await ctx.app.inject({ method: 'GET', url: '/api/admin/configuracion' });
+  expect(g.json().cocina_activa).toBe(true); // sigue el valor de la primera prueba, no se sobrescribió con basura
+});
+
+test('PATCH rechaza null en un campo de texto obligatorio con 400, no 500', async () => {
+  const r = await ctx.app.inject({ method: 'PATCH', url: '/api/admin/configuracion', payload: { nombre_local: null } });
+  expect(r.statusCode).toBe(400);
+});
+
+test('PATCH con un cuerpo que no es un objeto responde 400, no 500', async () => {
+  const r = await ctx.app.inject({ method: 'PATCH', url: '/api/admin/configuracion', headers: { 'content-type': 'application/json' }, payload: '1' });
+  expect(r.statusCode).toBe(400);
+});
+
+test('PATCH sin cuerpo sigue respondiendo 200, sin cambios', async () => {
+  const r = await ctx.app.inject({ method: 'PATCH', url: '/api/admin/configuracion' });
+  expect(r.statusCode).toBe(200);
+});
+
+test('PATCH rechaza un umbral de stock bajo desmesurado', async () => {
+  const r = await ctx.app.inject({ method: 'PATCH', url: '/api/admin/configuracion', payload: { umbral_stock_bajo: 99999999999 } });
+  expect(r.statusCode).toBe(400);
+});
+
+test('PATCH recorta los espacios del nombre del local', async () => {
+  const r = await ctx.app.inject({ method: 'PATCH', url: '/api/admin/configuracion', payload: { nombre_local: '  Delicadas  ' } });
+  expect(r.statusCode).toBe(200);
+  expect(r.json().nombre_local).toBe('Delicadas');
+});
+
+test('PATCH rechaza simbolo de moneda vacio o demasiado largo', async () => {
+  const vacio = await ctx.app.inject({ method: 'PATCH', url: '/api/admin/configuracion', payload: { simbolo_moneda: '   ' } });
+  expect(vacio.statusCode).toBe(400);
+  const largo = await ctx.app.inject({ method: 'PATCH', url: '/api/admin/configuracion', payload: { simbolo_moneda: '123456' } });
+  expect(largo.statusCode).toBe(400);
+});
+
+test('PATCH acepta la propina como cadena numerica limpia y rechaza una cadena sucia', async () => {
+  const limpia = await ctx.app.inject({ method: 'PATCH', url: '/api/admin/configuracion', payload: { propina_sugerida_pct: '12.5' } });
+  expect(limpia.statusCode).toBe(200);
+  expect(limpia.json().propina_sugerida_pct).toBe('12.50');
+  const sucia = await ctx.app.inject({ method: 'PATCH', url: '/api/admin/configuracion', payload: { propina_sugerida_pct: '12.5%' } });
+  expect(sucia.statusCode).toBe(400);
+});

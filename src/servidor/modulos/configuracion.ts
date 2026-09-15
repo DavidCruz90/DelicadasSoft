@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db/conexion';
 import { configuracion } from '../db/schema';
-import { ErrorValidacion } from '../errores';
+import { ErrorValidacion, exigirObjeto } from '../errores';
 
 export type Configuracion = typeof configuracion.$inferSelect;
 
@@ -26,30 +26,85 @@ export async function obtenerConfiguracion(db: Db): Promise<Configuracion> {
 export type CamposEditables = Pick<Configuracion,
   'nombre_local' | 'simbolo_moneda' | 'cantidad_mesas' | 'propina_sugerida_pct' | 'umbral_stock_bajo' | 'cocina_activa' | 'sonido_cocina' | 'permitir_items_libres'>;
 
-const EDITABLES: (keyof CamposEditables)[] = ['nombre_local', 'simbolo_moneda', 'cantidad_mesas', 'propina_sugerida_pct', 'umbral_stock_bajo', 'cocina_activa', 'sonido_cocina', 'permitir_items_libres'];
+const INTERRUPTORES: (keyof CamposEditables)[] = ['cocina_activa', 'sonido_cocina', 'permitir_items_libres'];
+const UMBRAL_STOCK_MAXIMO = 1_000_000;
+const SIMBOLO_MONEDA_LARGO_MAXIMO = 5;
+const PATRON_NUMERO_LIMPIO = /^\d+(\.\d+)?$/;
 
-export async function actualizarConfiguracion(db: Db, cambios: Partial<CamposEditables>): Promise<Configuracion> {
+// Exige un texto no vacio (y lo recorta) para un campo de configuracion.
+// typeof descarta numeros, booleanos, objetos y null: "null" no debe colarse
+// como el texto literal "null" via String(null).
+function limpiarTexto(valor: unknown, nombreCampo: string): string {
+  if (typeof valor !== 'string') throw new ErrorValidacion(`El campo ${nombreCampo} debe ser texto`);
+  const limpio = valor.trim();
+  if (!limpio) throw new ErrorValidacion(`El campo ${nombreCampo} no puede estar vacío`);
+  return limpio;
+}
+
+// La propina admite un numero o una cadena numerica limpia (sin simbolos ni
+// espacios internos), nunca un booleano: Number(true) da 1 y colaria sin
+// esta comprobacion de tipo.
+function limpiarNumero(valor: unknown, nombreCampo: string): number {
+  if (typeof valor === 'number') {
+    if (Number.isNaN(valor)) throw new ErrorValidacion(`El campo ${nombreCampo} debe ser un número`);
+    return valor;
+  }
+  if (typeof valor === 'string' && PATRON_NUMERO_LIMPIO.test(valor.trim())) return Number(valor.trim());
+  throw new ErrorValidacion(`El campo ${nombreCampo} debe ser un número`);
+}
+
+export async function actualizarConfiguracion(db: Db, cambios: Partial<Record<keyof CamposEditables, unknown>>): Promise<Configuracion> {
   const actual = await asegurarConfiguracion(db);
   const limpio: Partial<CamposEditables> = {};
-  for (const k of EDITABLES) if (k in cambios) (limpio as any)[k] = (cambios as any)[k];
-  if (limpio.cantidad_mesas !== undefined && (!Number.isInteger(limpio.cantidad_mesas) || limpio.cantidad_mesas < 1 || limpio.cantidad_mesas > 200))
-    throw new ErrorValidacion('La cantidad de mesas debe estar entre 1 y 200');
-  if (limpio.umbral_stock_bajo !== undefined && (!Number.isInteger(limpio.umbral_stock_bajo) || limpio.umbral_stock_bajo < 0))
-    throw new ErrorValidacion('El umbral de stock bajo debe ser un entero mayor o igual a 0');
-  if (limpio.propina_sugerida_pct !== undefined) {
-    const n = Number(limpio.propina_sugerida_pct);
-    if (Number.isNaN(n) || n < 0 || n > 100) throw new ErrorValidacion('La propina sugerida debe estar entre 0 y 100');
+
+  if (cambios.nombre_local !== undefined) limpio.nombre_local = limpiarTexto(cambios.nombre_local, 'nombre_local');
+  if (cambios.simbolo_moneda !== undefined) {
+    const t = limpiarTexto(cambios.simbolo_moneda, 'simbolo_moneda');
+    if (t.length > SIMBOLO_MONEDA_LARGO_MAXIMO) throw new ErrorValidacion(`El símbolo de moneda no puede tener más de ${SIMBOLO_MONEDA_LARGO_MAXIMO} caracteres`);
+    limpio.simbolo_moneda = t;
+  }
+  for (const campo of INTERRUPTORES) {
+    const valor = cambios[campo];
+    if (valor === undefined) continue;
+    if (typeof valor !== 'boolean') throw new ErrorValidacion(`El campo ${campo} debe ser verdadero o falso`);
+    (limpio as any)[campo] = valor;
+  }
+  if (cambios.cantidad_mesas !== undefined) {
+    const n = cambios.cantidad_mesas;
+    if (!Number.isInteger(n) || (n as number) < 1 || (n as number) > 200)
+      throw new ErrorValidacion('La cantidad de mesas debe estar entre 1 y 200');
+    limpio.cantidad_mesas = n as number;
+  }
+  if (cambios.umbral_stock_bajo !== undefined) {
+    const n = cambios.umbral_stock_bajo;
+    if (!Number.isInteger(n) || (n as number) < 0 || (n as number) > UMBRAL_STOCK_MAXIMO)
+      throw new ErrorValidacion(`El umbral de stock bajo debe ser un entero entre 0 y ${UMBRAL_STOCK_MAXIMO}`);
+    limpio.umbral_stock_bajo = n as number;
+  }
+  if (cambios.propina_sugerida_pct !== undefined) {
+    const n = limpiarNumero(cambios.propina_sugerida_pct, 'propina_sugerida_pct');
+    if (n < 0 || n > 100) throw new ErrorValidacion('La propina sugerida debe estar entre 0 y 100');
     limpio.propina_sugerida_pct = n.toFixed(2);
   }
-  if (limpio.nombre_local !== undefined && !String(limpio.nombre_local).trim()) throw new ErrorValidacion('El nombre del local no puede estar vacío');
+
   const [actualizada] = await db.update(configuracion).set({ ...limpio, actualizado_en: new Date() }).where(eq(configuracion.id, actual.id)).returning();
   return actualizada;
+}
+
+// Un cuerpo ausente (sin Content-Type o sin payload) llega como undefined:
+// se trata como "sin cambios" y la peticion responde 200 sin modificar nada.
+// Un cuerpo presente pero que no sea un objeto (texto, numero, arreglo) si
+// se rechaza con 400.
+function cuerpoComoObjeto(body: unknown): Record<string, unknown> {
+  if (body === undefined || body === null) return {};
+  return exigirObjeto(body);
 }
 
 export function rutasConfiguracion(app: FastifyInstance) {
   app.get('/api/admin/configuracion', async () => obtenerConfiguracion(app.db));
   app.patch('/api/admin/configuracion', async (req) => {
-    const r = await actualizarConfiguracion(app.db, (req.body ?? {}) as Partial<CamposEditables>);
+    const cambios = cuerpoComoObjeto(req.body);
+    const r = await actualizarConfiguracion(app.db, cambios);
     app.bus.emitir('config');
     return r;
   });
