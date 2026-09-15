@@ -14,6 +14,12 @@ Actualizado: 2026-09-15 (tarde)
 - Dave pidió terminar los 4 planes antes de escribir código. Hecho.
 - No hay código todavía.
 
+## Decisiones técnicas tomadas durante la ejecución, por si hay que revisarlas
+- **Dependencias subidas por seguridad (2026-09-15):** `@fastify/static` a 10.1.3 y `drizzle-orm` a 0.45.2, por fallos de severidad alta (path traversal e inyección SQL). `vitest`, `drizzle-kit` y `esbuild` se dejan como están: son de desarrollo y el arreglo que npm propone para drizzle-kit es un downgrade.
+- **Validaciones de rango solo en el servidor:** la base de datos no lleva restricciones `CHECK` para montos, cantidades, precios ni stock, ni para la coherencia entre `es_libre` y `producto_id`. La spec pone esas reglas en el servidor (reglas 2, 7 y 16) y los planes 2 y 3 las implementan con pruebas. Si algún día se quiere defensa en profundidad, se añaden en una migración nueva, con cuidado: `movimiento_stock.cantidad` es un delta con signo y sí puede ser negativo.
+- **`actualizado_en` se actualiza solo** vía `$onUpdate` de Drizzle, que cubre las escrituras hechas con Drizzle pero no las hechas con SQL crudo. Si en algún plan se escribe con SQL crudo, hay que poner el campo a mano o añadir un disparador.
+- **Faltan índices sobre claves foráneas de alto tráfico** (`pedido_item.ronda_id`, `pago.cuenta_id`, `abono.encargo_id`, `encargo_item.encargo_id`). Irrelevante en una base de este tamaño; revisar solo si aparece lentitud.
+
 ## Pendientes de decisión (preguntar a Dave o al propietario)
 1. Aprobación del propietario sobre la propuesta.
 2. Referencia opcional por pago: mantener o quitar.
