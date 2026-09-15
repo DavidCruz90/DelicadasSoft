@@ -3,7 +3,8 @@ import type { FastifyError } from 'fastify';
 import { isNull } from 'drizzle-orm';
 import type { Db } from './db/conexion';
 import { crearBusEventos, rutaEventos, type BusEventos } from './eventos';
-import { obtenerConfiguracion } from './modulos/configuracion';
+import { obtenerConfiguracion, rutasConfiguracion } from './modulos/configuracion';
+import { rutasMeseros } from './modulos/meseros';
 import { jornada, mesero } from './db/schema';
 
 declare module 'fastify' {
@@ -63,6 +64,8 @@ export async function crearApp({ db }: { db: Db }) {
     };
   });
   rutaEventos(app);
+  rutasConfiguracion(app);
+  rutasMeseros(app);
 
   return app;
 }
