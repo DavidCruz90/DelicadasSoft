@@ -323,7 +323,7 @@ td code{white-space:nowrap}
     <li>Caja lo crea con cliente, fecha de entrega e ítems. Ejemplo: 30 quimbolitos, martes para el jueves.</li>
     <li>El cliente abona. Ese dinero se registra pero no es venta ni entra al arqueo del día: queda en la “caja de encargos”, que el sistema muestra como saldo aparte.</li>
     <li>El día de entrega, caja pulsa “Entregar”. El encargo se convierte en un pedido para llevar con los abonos ya aplicados como pagos, caja cobra la diferencia, y recién ahí sale el ticket y la venta completa se registra en esa jornada. El efectivo de los abonos entra ese día al arqueo.</li>
-    <li>Si el cliente cancela, caja decide devolver el abono o retenerlo. Si lo retiene, entra a la caja del día como venta “Encargo cancelado”.</li>
+    <li>Si el cliente cancela, caja escribe cuánto se devuelve, entre nada y todo el abono, según lo avanzada que esté la preparación. Lo devuelto sale de la caja de encargos o queda como egreso de devolución; lo retenido entra a la caja del día como venta “Encargo cancelado”.</li>
     <li>Los encargos no descuentan stock del menú del día: se preparan aparte.</li>
   </ol>
   <h3>Cómo se calcula una cuenta</h3>

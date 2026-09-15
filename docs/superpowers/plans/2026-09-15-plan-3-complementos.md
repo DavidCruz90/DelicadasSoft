@@ -413,7 +413,7 @@ git add -A && git commit -m "Egresos por tipo con efecto en el arqueo" && git pu
   - `editarEncargo(db, id, { fecha_entrega?, notas?, items? })` → solo `pendiente`; si vienen `items`, reemplaza todos; el nuevo total no puede ser menor que lo abonado (409 `El total no puede ser menor que lo ya abonado`).
   - `abonar(db, id, { id: uuid, metodo, monto, referencia? })` → idempotente por `id`; 409 `El abono supera el saldo del encargo`; monto > 0.
   - `entregar(db, id)` → según spec 4.4: crea pedido `origen = encargo` con cuenta 1 (cliente del encargo), ronda 1 `origen = caja`, `enviada_a_cocina = false`, ítems con `afecta_stock = false`; convierte abonos pendientes en pagos (`referencia = "Abono DD/MM"`), marca abonos `aplicado`, encargo `entregado`, `pedido_id`. Si los abonos cubren todo el total, la cuenta y el pedido quedan cobrados de inmediato. Devuelve `{ encargo, pedido_id }`.
-  - `cancelar(db, id, { motivo, abonos: 'devolver' | 'retener' })` → `devolver`: abonos pendientes → `devuelto`; `retener`: crea pedido `origen = encargo` con un ítem libre "Encargo #N cancelado" por el total abonado, cuenta 1 con el cliente, abonos aplicados como pagos, pedido cobrado; `abono_retenido = true`. Sin abonos: solo estado.
+  - `cancelar(db, id, { motivo, monto_devolver })` → sin abonos: solo estado. Con abonos: `monto_devolver` obligatorio entre 0 y lo abonado (400 `Indica cuánto se devuelve, entre 0 y lo abonado`). Si `monto_devolver == abonado`: abonos → `devuelto`, `monto_devuelto = abonado`, `abono_retenido = false`. Si no: crea pedido `origen = encargo` con ítem libre "Encargo #N cancelado" por `abonado`, cuenta 1 con el cliente, abonos aplicados como pagos, pedido cobrado; si `monto_devolver > 0` crea egreso `devolucion_cliente` por ese monto vinculado al pedido; `abono_retenido = true`, `monto_devuelto = monto_devolver`. Devuelve `{ encargo, pedido_id, egreso_id? }`.
   - `comprobanteHtml(db, id)` → HTML imprimible con número, cliente, fecha de entrega, ítems, total, abonos, saldo.
   - Rutas: `GET /api/encargos?estado=`, `GET /api/encargos/:id`, `POST /api/encargos`, `PATCH /api/encargos/:id`, `POST /api/encargos/:id/abonos` (201 / 200 repetido), `POST /api/encargos/:id/entregar`, `POST /api/encargos/:id/cancelar`, `GET /api/encargos/:id/comprobante`. Emiten `jornada` (para el resumen) y `mesa` (al entregar o retener).
 
@@ -519,26 +519,49 @@ test('entregar convierte en pedido con abonos aplicados; cobrar el saldo registr
   expect(ticket.body).toContain('Encargo');
 });
 
-test('cancelar con devolver y con retener', async () => {
-  const a = (await post('/api/encargos', { cliente_id: clienteId, fecha_entrega: '2026-09-21', items: [{ producto_id: menu.capuchinoId, cantidad: 4 }] })).json();
-  await post(`/api/encargos/${a.id}/abonos`, { id: randomUUID(), metodo: 'efectivo', monto: 4 });
-  const dev = await post(`/api/encargos/${a.id}/cancelar`, { motivo: 'Cliente desistió', abonos: 'devolver' });
+test('cancelar: devolucion total, retencion total y devolucion parcial', async () => {
+  const mk = async (fecha: string, abono: number) => {
+    const e = (await post('/api/encargos', { cliente_id: clienteId, fecha_entrega: fecha, items: [{ producto_id: menu.capuchinoId, cantidad: 4 }] })).json();
+    await post(`/api/encargos/${e.id}/abonos`, { id: randomUUID(), metodo: 'efectivo', monto: abono });
+    return e;
+  };
+  const a = await mk('2026-09-21', 4);
+  const falta = await post(`/api/encargos/${a.id}/cancelar`, { motivo: 'Cliente desistió' });
+  expect(falta.statusCode).toBe(400);
+  expect(falta.json().error).toBe('Indica cuánto se devuelve, entre 0 y lo abonado');
+  const demas = await post(`/api/encargos/${a.id}/cancelar`, { motivo: 'Cliente desistió', monto_devolver: 5 });
+  expect(demas.statusCode).toBe(400);
+  const dev = await post(`/api/encargos/${a.id}/cancelar`, { motivo: 'Cliente desistió', monto_devolver: 4 });
   expect(dev.statusCode).toBe(200);
-  expect(dev.json().encargo.estado).toBe('cancelado');
+  expect(dev.json().encargo).toMatchObject({ estado: 'cancelado', abono_retenido: false, monto_devuelto: '4.00' });
   expect((await get(`/api/encargos/${a.id}`)).json().abonos[0].estado).toBe('devuelto');
-  const b = (await post('/api/encargos', { cliente_id: clienteId, fecha_entrega: '2026-09-22', items: [{ producto_id: menu.capuchinoId, cantidad: 4 }] })).json();
-  await post(`/api/encargos/${b.id}/abonos`, { id: randomUUID(), metodo: 'efectivo', monto: 6 });
+
+  const b = await mk('2026-09-22', 6);
   const antes = (await get('/api/jornadas/actual/resumen')).json();
-  const ret = await post(`/api/encargos/${b.id}/cancelar`, { motivo: 'No vino', abonos: 'retener' });
+  const ret = await post(`/api/encargos/${b.id}/cancelar`, { motivo: 'No vino', monto_devolver: 0 });
   expect(ret.statusCode).toBe(200);
-  expect(ret.json().encargo.abono_retenido).toBe(true);
+  expect(ret.json().encargo).toMatchObject({ abono_retenido: true, monto_devuelto: '0.00' });
   const p = (await get(`/api/pedidos/${ret.json().pedido_id}`)).json();
   expect(p.estado).toBe('cobrado');
   expect(p.cuentas[0].items[0].nombre_producto).toBe(`Encargo #${b.numero} cancelado`);
   const despues = (await get('/api/jornadas/actual/resumen')).json();
   expect(despues.total_ventas).toBe(antes.total_ventas + 6);
   expect(despues.total_abonos_devueltos).toBe(4);
-  const sinMotivo = await post(`/api/encargos/${a.id}/cancelar`, { motivo: '', abonos: 'devolver' });
+
+  const c = await mk('2026-09-23', 10);
+  const antes2 = (await get('/api/jornadas/actual/resumen')).json();
+  const parcial = await post(`/api/encargos/${c.id}/cancelar`, { motivo: 'Ya estaba la mitad hecha', monto_devolver: 4 });
+  expect(parcial.statusCode).toBe(200);
+  expect(parcial.json().encargo).toMatchObject({ abono_retenido: true, monto_devuelto: '4.00' });
+  expect(parcial.json().egreso_id).toBeTruthy();
+  const eg = await ctx.sql`SELECT tipo, monto, pedido_id FROM egreso WHERE id = ${parcial.json().egreso_id}`;
+  expect(eg[0]).toMatchObject({ tipo: 'devolucion_cliente', monto: '4.00', pedido_id: parcial.json().pedido_id });
+  const despues2 = (await get('/api/jornadas/actual/resumen')).json();
+  expect(despues2.total_ventas).toBe(antes2.total_ventas + 10);
+  expect(despues2.total_egresos).toBe(antes2.total_egresos + 4);
+  expect(despues2.efectivo_esperado).toBe(antes2.efectivo_esperado + 6);
+
+  const sinMotivo = await post(`/api/encargos/${a.id}/cancelar`, { motivo: '', monto_devolver: 0 });
   expect(sinMotivo.statusCode).toBe(400);
 });
 
@@ -566,7 +589,7 @@ test('comprobante de encargo', async () => {
 import { and, asc, desc, eq, inArray, max } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db/conexion';
-import { encargo, encargoItem, abono, cliente, producto, pedido, cuenta, ronda, pedidoItem, pago } from '../db/schema';
+import { encargo, encargoItem, abono, cliente, producto, pedido, cuenta, ronda, pedidoItem, pago, egreso } from '../db/schema';
 import { ErrorNegocio, ErrorValidacion, NoEncontrado } from '../errores';
 import { requerirJornadaAbierta } from './jornada';
 import { obtenerConfiguracion } from './configuracion';
@@ -720,27 +743,35 @@ export async function entregar(db: Db, id: string) {
   return { encargo: await obtenerEncargo(db, id), pedido_id: pedidoId };
 }
 
-export async function cancelar(db: Db, id: string, datos: { motivo: string; abonos?: 'devolver' | 'retener' }) {
+export async function cancelar(db: Db, id: string, datos: { motivo: string; monto_devolver?: number | string }) {
   const j = await requerirJornadaAbierta(db);
   const e = await pendiente(db, id);
   const motivo = String(datos?.motivo ?? '').trim();
   if (!motivo) throw new ErrorValidacion('La cancelación necesita un motivo');
   const pendientes = e.abonos.filter((a) => a.estado === 'pendiente');
-  const modo = datos.abonos ?? 'devolver';
-  if (pendientes.length && !['devolver', 'retener'].includes(modo)) throw new ErrorValidacion('Indica si los abonos se devuelven o se retienen');
-  const pedidoId = await db.transaction(async (tx) => {
-    let pid: string | null = null;
-    if (pendientes.length && modo === 'retener') {
-      const total = redondear(pendientes.reduce((s, a) => s + Number(a.monto), 0));
-      const p = await crearPedidoDesdeEncargo(tx, j, e, [{ producto_id: null, es_libre: true, nombre_producto: `Encargo #${e.numero} cancelado`, precio_unitario: total.toFixed(2), cantidad: 1, nota: motivo }]);
-      pid = p.id;
-    } else if (pendientes.length) {
+  const abonado = redondear(pendientes.reduce((s, a) => s + Number(a.monto), 0));
+  let devolver = 0;
+  if (pendientes.length) {
+    devolver = redondear(Number(datos.monto_devolver));
+    if (datos.monto_devolver === undefined || datos.monto_devolver === null || Number.isNaN(devolver) || devolver < 0 || devolver > abonado + 0.005) throw new ErrorValidacion('Indica cuánto se devuelve, entre 0 y lo abonado');
+  }
+  const r = await db.transaction(async (tx) => {
+    let pid: string | null = null; let egresoId: string | null = null; let retenido: boolean | null = null;
+    if (pendientes.length && Math.abs(devolver - abonado) <= 0.005) {
       await tx.update(abono).set({ estado: 'devuelto', devuelto_en: new Date(), actualizado_en: new Date() }).where(inArray(abono.id, pendientes.map((a) => a.id)));
+      retenido = false;
+    } else if (pendientes.length) {
+      const p = await crearPedidoDesdeEncargo(tx, j, e, [{ producto_id: null, es_libre: true, nombre_producto: `Encargo #${e.numero} cancelado`, precio_unitario: abonado.toFixed(2), cantidad: 1, nota: motivo }]);
+      pid = p.id; retenido = true;
+      if (devolver > 0) {
+        const [eg] = await tx.insert(egreso).values({ jornada_id: j.id, tipo: 'devolucion_cliente', monto: devolver.toFixed(2), motivo: `Devolución parcial por cancelación del encargo #${e.numero}: ${motivo}`, pedido_id: p.id }).returning();
+        egresoId = eg.id;
+      }
     }
-    await tx.update(encargo).set({ estado: 'cancelado', cancelado_en: new Date(), motivo_cancelacion: motivo, abono_retenido: pendientes.length ? modo === 'retener' : null, pedido_id: pid, actualizado_en: new Date() }).where(eq(encargo.id, id));
-    return pid;
+    await tx.update(encargo).set({ estado: 'cancelado', cancelado_en: new Date(), motivo_cancelacion: motivo, monto_devuelto: devolver.toFixed(2), abono_retenido: retenido, pedido_id: pid, actualizado_en: new Date() }).where(eq(encargo.id, id));
+    return { pid, egresoId };
   });
-  return { encargo: await obtenerEncargo(db, id), pedido_id: pedidoId };
+  return { encargo: await obtenerEncargo(db, id), pedido_id: r.pid, egreso_id: r.egresoId };
 }
 
 export async function comprobanteHtml(db: Db, id: string) {
@@ -854,9 +885,12 @@ export function Encargos({ config, onVolver, onAbrirPedido }: { config: any; onV
   };
   const cancelar = async () => {
     const motivo = prompt('Motivo de la cancelación'); if (!motivo?.trim()) return;
-    let abonos: 'devolver' | 'retener' = 'devolver';
-    if (actual.abonado > 0) abonos = confirm(`El cliente abonó ${dinero(actual.abonado, simbolo)}. Aceptar = DEVOLVER el abono. Cancelar = RETENERLO como venta.`) ? 'devolver' : 'retener';
-    try { await api.post(`/api/encargos/${actual.id}/cancelar`, { motivo, abonos }); setVista('lista'); setActual(null); await cargar(); } catch (err: any) { setError(err.message); }
+    let monto_devolver: number | undefined;
+    if (actual.abonado > 0) {
+      const v = prompt(`El cliente abonó ${dinero(actual.abonado, simbolo)}. ¿Cuánto se le devuelve? (0 = nada; ${actual.abonado.toFixed(2)} = todo). Lo no devuelto queda como venta "Encargo cancelado".`, actual.abonado.toFixed(2));
+      if (v === null) return; monto_devolver = Number(v);
+    }
+    try { await api.post(`/api/encargos/${actual.id}/cancelar`, { motivo, monto_devolver }); setVista('lista'); setActual(null); await cargar(); } catch (err: any) { setError(err.message); }
   };
 
   return (
@@ -1027,7 +1061,7 @@ export async function reporteJornada(db: Db, jornadaId: string) {
   const fin = j.cerrada_en ?? new Date();
   const encs = await db.select({ e: encargo, cliente_nombre: cliente.nombre }).from(encargo).innerJoin(cliente, eq(cliente.id, encargo.cliente_id))
     .where(or(eq(encargo.jornada_creacion_id, j.id), and(gte(encargo.entregado_en, j.abierta_en), lte(encargo.entregado_en, fin)), and(gte(encargo.cancelado_en, j.abierta_en), lte(encargo.cancelado_en, fin))));
-  const encargos = encs.map((x) => ({ numero: x.e.numero, cliente_nombre: x.cliente_nombre, estado: x.e.estado, fecha_entrega: x.e.fecha_entrega, entregado_en: x.e.entregado_en, cancelado_en: x.e.cancelado_en, abono_retenido: x.e.abono_retenido }));
+  const encargos = encs.map((x) => ({ numero: x.e.numero, cliente_nombre: x.cliente_nombre, estado: x.e.estado, fecha_entrega: x.e.fecha_entrega, entregado_en: x.e.entregado_en, cancelado_en: x.e.cancelado_en, abono_retenido: x.e.abono_retenido, monto_devuelto: Number(x.e.monto_devuelto) }));
   return { jornada: j, cierre, ventas_por_producto, stock_restante, egresos, encargos };
 }
 
@@ -1282,5 +1316,5 @@ git add -A && git commit -m "Datos de ejemplo cargables y borrables desde admin"
 ## Self-review
 
 - **Cobertura:** 4.4 encargos → Task 3 y 4; reglas 6 y 13 → Task 1; regla 12 (abonos en cierre) ya en plan 2 Task 2 y verificada en Task 3; reglas 16 a 19 → Task 3; 7.2 → Task 1; 7.3 egresos y encargos → Tasks 2 y 4; 7.4 clientes, reportes, datos de ejemplo → Tasks 5 y 6; 7.5 constancia → Task 3. Quedan para plan 4: respaldos, restaurar, descargar log, lanzador, empaquetado, E2E.
-- **Consistencia:** `listarEncargos` devuelve `{ encargos, saldo_caja_encargos }`; `abonar` devuelve `{ abono, repetido, encargo }`; `entregar`/`cancelar` devuelven `{ encargo, pedido_id }`; `resumenJornada` expone `saldo_caja_encargos` (definido en plan 2 Task 2) usado en cierre y reportes.
+- **Consistencia:** `listarEncargos` devuelve `{ encargos, saldo_caja_encargos }`; `abonar` devuelve `{ abono, repetido, encargo }`; `entregar` devuelve `{ encargo, pedido_id }` y `cancelar` `{ encargo, pedido_id, egreso_id }`; `resumenJornada` expone `saldo_caja_encargos` (definido en plan 2 Task 2) usado en cierre y reportes.
 - **Sin placeholders.**

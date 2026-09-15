@@ -133,7 +133,7 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 ### 4.4 Encargos
 
 **encargo**
-- `numero` (secuencial global, se muestra al cliente), `cliente_id` (obligatorio), `fecha_entrega` (fecha), `notas`, `estado` (enum: `pendiente`, `entregado`, `cancelado`), `jornada_creacion_id`, `pedido_id` (nulo hasta entregar), `entregado_en`, `cancelado_en`, `motivo_cancelacion`, `abono_retenido` (booleano, nulo si no se canceló).
+- `numero` (secuencial global, se muestra al cliente), `cliente_id` (obligatorio), `fecha_entrega` (fecha), `notas`, `estado` (enum: `pendiente`, `entregado`, `cancelado`), `jornada_creacion_id`, `pedido_id` (nulo hasta entregar o hasta cancelar reteniendo), `entregado_en`, `cancelado_en`, `motivo_cancelacion`, `monto_devuelto` (monto devuelto al cancelar, 0 si no se devolvió nada), `abono_retenido` (booleano: verdadero si se retuvo algo; nulo si no se canceló o no había abono).
 
 **encargo_item**
 - `encargo_id`, `producto_id` (nulo si libre), `es_libre`, `nombre_producto`, `precio_unitario`, `cantidad`, `nota`. Editables mientras el encargo esté `pendiente`.
@@ -152,10 +152,11 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 5. Marca el encargo `entregado` y guarda `pedido_id`.
 Caja queda dentro del pedido con el saldo a cobrar. Desde ahí el cobro, la división de cuenta y el ticket funcionan como en cualquier pedido. La venta completa, abonos incluidos, queda registrada en la jornada de entrega.
 
-**Cancelar** (encargo `pendiente`, con motivo): caja elige qué hacer con los abonos pendientes.
-- **Devolver**: cada abono pasa a `devuelto` con `devuelto_en`. El efectivo sale de la caja de encargos; no toca la caja del día. El cierre lo muestra como "Abonos devueltos hoy".
-- **Retener**: se crea un pedido `origen = encargo` con un único ítem libre "Encargo #N cancelado" por el total de los abonos, cuenta 1 con el cliente, y los abonos se aplican como pagos. Queda cobrado de inmediato. Así el dinero entra a la caja del día como venta y aparece en reportes. `abono_retenido = true`.
-- Sin abonos: solo cambia el estado.
+**Cancelar** (encargo `pendiente`, con motivo): caja escribe `monto_devolver`, entre 0 y lo abonado (decisión de Dave, 2026-09-15: "caja decide el monto a devolver", según qué tan avanzada esté la preparación). Sea `abonado` la suma de abonos pendientes.
+- **Sin abonos**: solo cambia el estado.
+- **Devolución total** (`monto_devolver = abonado`): cada abono pasa a `devuelto` con `devuelto_en`. El efectivo sale de la caja de encargos; no toca la caja del día. El cierre lo muestra como "Abonos devueltos hoy". `abono_retenido = false`, `monto_devuelto = abonado`.
+- **Retención total o parcial** (`monto_devolver < abonado`): se crea un pedido `origen = encargo` con un único ítem libre "Encargo #N cancelado" por `abonado`, cuenta 1 con el cliente, y los abonos se aplican como pagos; queda cobrado. Si `monto_devolver > 0`, se crea además un egreso `devolucion_cliente` por `monto_devolver` vinculado a ese pedido, con motivo "Devolución parcial por cancelación del encargo #N: <motivo>". Resultado en caja del día: entra `abonado` como venta y sale `monto_devolver` como egreso; el neto es lo retenido. `abono_retenido = true`, `monto_devuelto = monto_devolver`.
+- `monto_devolver` fuera de rango o ausente cuando hay abonos: 400 "Indica cuánto se devuelve, entre 0 y lo abonado".
 
 ### 4.5 Cálculo de totales de una cuenta
 
@@ -194,7 +195,7 @@ Redondeo a 2 decimales en cada paso. `descuento` nunca puede superar `subtotal`.
 16. **Encargos solo desde caja** y solo con jornada abierta, tanto para crear como para abonar, entregar o cancelar. El cliente es obligatorio (basta el nombre). Los ítems del encargo se pueden editar mientras esté pendiente; la suma de abonos nunca supera el total.
 17. **Los abonos no son venta.** Se registran el día que se reciben pero no suman a ventas ni al arqueo de ese día. La venta se registra completa el día de entrega, cuando el encargo se convierte en pedido y los abonos se aplican como pagos.
 18. **Los encargos no tocan stock.** Ni al crear ni al entregar. Se preparan aparte del menú del día.
-19. **Cancelar un encargo con abono** obliga a caja a elegir devolver o retener, según 4.4.
+19. **Cancelar un encargo con abono** obliga a caja a indicar cuánto se devuelve (de 0 a lo abonado); el resto se retiene como venta, según 4.4.
 
 ## 6. API
 
@@ -230,7 +231,7 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 | `PATCH /encargos/:id` | Editar ítems, fecha, notas (solo pendiente) |
 | `POST /encargos/:id/abonos` | `{id, metodo, monto, referencia}` |
 | `POST /encargos/:id/entregar` | Convierte en pedido y devuelve `{pedido_id}` |
-| `POST /encargos/:id/cancelar` | `{motivo, abonos: "devolver" | "retener"}` |
+| `POST /encargos/:id/cancelar` | `{motivo, monto_devolver}`; `monto_devolver` obligatorio si hay abonos, entre 0 y lo abonado |
 | `GET /encargos/:id/comprobante` | HTML imprimible del encargo con abonos recibidos, para entregar al cliente como constancia |
 | `GET/POST/PATCH /clientes` | Buscar por nombre o identificación, crear, editar |
 | `GET/POST/PATCH /admin/categorias`, `/admin/productos` | Catálogo. Subida de foto en `POST /admin/productos/:id/foto` |
@@ -267,7 +268,7 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
   - Por cada cuenta abierta: descuento (monto o %), propina (con sugerido), cliente (buscar por identificación o nombre, crear al vuelo).
   - Pagos por cuenta: lista de pagos registrados, formulario método + monto + referencia, botón "Cobrar exacto" que rellena el saldo. Al cubrir el total de la cuenta se abre su ticket en pestaña nueva. La mesa se libera cuando todas las cuentas están cobradas.
 - "Egresos": lista de la jornada y formulario.
-- "Encargos": lista de pendientes por fecha de entrega (los de hoy resaltados) con total, abonado y saldo, y el saldo de la caja de encargos arriba. "Nuevo encargo": cliente (buscar o crear con solo el nombre), fecha de entrega, ítems del catálogo o libres, notas. Dentro de un encargo: "Abonar" (método, monto, referencia), "Imprimir constancia", "Entregar" (abre el pedido resultante con el saldo a cobrar), "Cancelar" (motivo y devolver o retener).
+- "Encargos": lista de pendientes por fecha de entrega (los de hoy resaltados) con total, abonado y saldo, y el saldo de la caja de encargos arriba. "Nuevo encargo": cliente (buscar o crear con solo el nombre), fecha de entrega, ítems del catálogo o libres, notas. Dentro de un encargo: "Abonar" (método, monto, referencia), "Imprimir constancia", "Entregar" (abre el pedido resultante con el saldo a cobrar), "Cancelar" (motivo y monto a devolver, de 0 a lo abonado).
 - "Cerrar caja": muestra resumen, pide efectivo contado, muestra diferencia, confirma, genera respaldo, imprime reporte de cierre.
 - Indicador de ronda lista por mesa si cocina activa.
 

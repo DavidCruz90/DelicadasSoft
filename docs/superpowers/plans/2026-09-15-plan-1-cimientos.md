@@ -460,6 +460,7 @@ export const encargo = pgTable('encargo', {
   entregado_en: timestamp('entregado_en', { withTimezone: true }),
   cancelado_en: timestamp('cancelado_en', { withTimezone: true }),
   motivo_cancelacion: text('motivo_cancelacion'),
+  monto_devuelto: monto('monto_devuelto').notNull().default('0'),
   abono_retenido: boolean('abono_retenido'),
   ...tiempos(),
 });
