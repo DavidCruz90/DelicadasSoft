@@ -1,9 +1,9 @@
 # ESTADO DEL PROYECTO
 
-Actualizado: 2026-09-14
+Actualizado: 2026-09-14 (noche)
 
 ## Dónde estamos
-- Módulo 1, Núcleo POS: diseño terminado y aprobado por Dave. Spec: `docs/superpowers/specs/2026-09-12-nucleo-pos-design.md`.
+- Módulo 1, Núcleo POS: diseño terminado y aprobado por Dave, incluyendo los 4 casos del 2026-09-14: encargos con abono, ítem libre, cliente con solo nombre, ticket sin leyenda de impuestos. Spec: `docs/superpowers/specs/2026-09-12-nucleo-pos-design.md`.
 - Propuesta para el propietario: `docs/propuesta-nucleo-pos.html`. Pendiente de su aprobación.
 - No hay código todavía.
 

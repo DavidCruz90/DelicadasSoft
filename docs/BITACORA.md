@@ -13,3 +13,9 @@
 
 ## 2026-09-14
 1. Dave dictó la LEY del proyecto. Se creó `CLAUDE.md`, `docs/ESTADO.md` y este archivo. Subido a `origin/main`.
+2. Dave entregó 4 casos y dijo "eso es todo". Se procesaron juntos:
+   - Caso 1, encargos con abono: nuevas tablas `encargo`, `encargo_item`, `abono`; caja de encargos como saldo aparte; venta y ticket el día de entrega; no tocan stock; solo caja; al cancelar, caja elige devolver o retener. Dave respondió las 3 preguntas eligiendo las opciones recomendadas.
+   - Caso 2, ítem libre: texto y valor, mesero y caja, sin stock, parametrizable en admin (`permitir_items_libres`).
+   - Caso 3, cliente: solo nombre obligatorio; SRI exigirá el resto al facturar.
+   - Caso 4, ticket sin leyenda de impuestos.
+   Spec sección 4.4 nueva, reglas 15 a 19, API de encargos, pantallas, ticket y pruebas actualizados. Propuesta HTML y artifact actualizados. Subido a `origin/main`.

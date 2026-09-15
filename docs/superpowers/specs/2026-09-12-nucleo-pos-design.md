@@ -1,6 +1,6 @@
 # Núcleo POS Cafetería — Diseño
 
-Fecha: 2026-09-12 (cuenta dividida por ítems agregada el 2026-09-13)
+Fecha: 2026-09-12 (cuenta dividida 2026-09-13; encargos, ítem libre, cliente mínimo y ticket sin leyenda 2026-09-14)
 Estado: aprobado en conversación, pendiente de revisión escrita
 Módulo: 1 de 4 (siguen: Menú digital, Facturación electrónica SRI, Wallet de fidelización)
 
@@ -21,7 +21,10 @@ Sistema para operar una cafetería en red local: tomar pedidos por mesa, ampliar
 | Cocina | Opcional, informativa. Estados Pendiente y Listo. Nada depende de ella. |
 | Jornada | Apertura y cierre de caja explícitos. Nada opera sin jornada abierta. |
 | Egresos | Monto, tipo (compra de ingredientes, devolución a cliente, otro), motivo, pedido vinculado opcional. |
-| Impuestos | Precios finales. Sin desglose de IVA en el Núcleo. |
+| Impuestos | Precios finales. Sin desglose de IVA. El ticket no lleva ninguna leyenda de impuestos. |
+| Encargos | Pedidos para días posteriores con abonos. Solo caja los crea. Los abonos van a una "caja de encargos" separada y no cuentan como venta ni en el arqueo. La venta y el ticket se generan el día de entrega. No tocan stock. |
+| Ítem libre | Mesero y caja pueden agregar un ítem con texto y valor libres. Sin stock. Admin puede desactivarlo. |
+| Cliente | Solo el nombre es obligatorio. Identificación, correo, teléfono y dirección son opcionales; Facturación SRI los exigirá al facturar. |
 | Moneda | Dólares, símbolo configurable. |
 | Base de datos | PostgreSQL 16 desde el inicio, portátil dentro de la carpeta del programa. |
 | Tecnología | Node.js 22 + TypeScript, Fastify, Drizzle ORM, Preact. |
@@ -73,7 +76,7 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 ### 4.1 Configuración y catálogo
 
 **configuracion** (una sola fila)
-- `nombre_local`, `simbolo_moneda` (por defecto `$`), `cantidad_mesas` (entero), `propina_sugerida_pct`, `umbral_stock_bajo` (entero, por defecto 5), `cocina_activa` (booleano, por defecto falso), `sonido_cocina` (booleano).
+- `nombre_local`, `simbolo_moneda` (por defecto `$`), `cantidad_mesas` (entero), `propina_sugerida_pct`, `umbral_stock_bajo` (entero, por defecto 5), `cocina_activa` (booleano, por defecto falso), `sonido_cocina` (booleano), `permitir_items_libres` (booleano, por defecto verdadero).
 
 **mesero**
 - `nombre`, `activo`.
@@ -94,7 +97,7 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 - Regla: solo una jornada con `cerrada_en` nulo a la vez (índice único parcial).
 
 **pedido**
-- `jornada_id`, `numero_mesa` (entero, 0 = para llevar), `numero` (secuencial dentro de la jornada, se muestra en ticket), `mesero_id`, `estado` (enum: `abierto`, `cobrado`, `anulado`), `notas`, `cobrado_en`.
+- `jornada_id`, `numero_mesa` (entero, 0 = para llevar), `numero` (secuencial dentro de la jornada, se muestra en ticket), `mesero_id` (nulo solo cuando el pedido nace de un encargo), `origen` (enum: `mesa`, `llevar`, `encargo`), `encargo_id` (nulo salvo origen encargo), `estado` (enum: `abierto`, `cobrado`, `anulado`), `notas`, `cobrado_en`.
 - Regla: una mesa con número > 0 tiene como máximo un pedido `abierto` (índice único parcial). "Para llevar" admite varios.
 - Un pedido pasa a `cobrado` cuando todas sus cuentas están cobradas.
 
@@ -108,7 +111,8 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 - `pedido_id`, `numero` (1, 2, 3… dentro del pedido), `origen` (enum: `mesero`, `caja`), `enviada_a_cocina` (booleano; falso cuando caja marca "ya servido"), `estado` (enum: `pendiente`, `lista`), `lista_en`, `aviso_visto_mesero`, `aviso_visto_caja` (booleanos para descartar el aviso de "Listo para servir").
 
 **pedido_item**
-- `ronda_id`, `cuenta_id`, `producto_id`, `nombre_producto` (copiado), `precio_unitario` (copiado), `cantidad`, `nota`, `anulado` (booleano), `motivo_anulacion`, `anulado_en`.
+- `ronda_id`, `cuenta_id`, `producto_id` (nulo si es ítem libre), `es_libre` (booleano), `nombre_producto` (copiado del producto, o texto libre), `precio_unitario` (copiado del producto, o valor libre), `cantidad`, `nota`, `afecta_stock` (booleano: falso en ítems libres y en ítems que vienen de un encargo), `anulado` (booleano), `motivo_anulacion`, `anulado_en`.
+- Ítem libre: `producto_id` nulo, `es_libre` verdadero, nombre no vacío, precio mayor o igual a 0. Solo se acepta si `configuracion.permitir_items_libres` es verdadero.
 - Repartir un ítem con cantidad mayor a 1 entre dos cuentas divide la fila en dos con la misma ronda y producto (por ejemplo cantidad 2 pasa a 1 + 1). No se dividen fracciones de unidad.
 
 **pago**
@@ -121,11 +125,39 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 ### 4.3 Clientes
 
 **cliente**
-- `nombre`, `tipo_identificacion` (enum: `cedula`, `ruc`, `pasaporte`, `consumidor_final`), `identificacion`, `correo`, `telefono`, `direccion`, `activo`.
-- Índice único sobre (`tipo_identificacion`, `identificacion`) salvo consumidor final.
+- `nombre` (único campo obligatorio), `tipo_identificacion` (enum: `cedula`, `ruc`, `pasaporte`, `consumidor_final`; nulo si no se registró), `identificacion` (nulo), `correo` (nulo), `telefono` (nulo), `direccion` (nulo), `activo`.
+- Índice único sobre (`tipo_identificacion`, `identificacion`) solo cuando ambos están presentes y el tipo no es consumidor final.
+- Para ticket no se exige ningún dato además del nombre. El módulo de Facturación SRI validará correo, identificación y dirección al emitir factura.
 - Campos pensados para la Facturación SRI del módulo 3; el Núcleo solo los guarda y asocia a la cuenta. Como cada cuenta tiene sus propios ítems y cliente, el módulo 3 podrá emitir una factura por cuenta.
 
-### 4.4 Cálculo de totales de una cuenta
+### 4.4 Encargos
+
+**encargo**
+- `numero` (secuencial global, se muestra al cliente), `cliente_id` (obligatorio), `fecha_entrega` (fecha), `notas`, `estado` (enum: `pendiente`, `entregado`, `cancelado`), `jornada_creacion_id`, `pedido_id` (nulo hasta entregar), `entregado_en`, `cancelado_en`, `motivo_cancelacion`, `abono_retenido` (booleano, nulo si no se canceló).
+
+**encargo_item**
+- `encargo_id`, `producto_id` (nulo si libre), `es_libre`, `nombre_producto`, `precio_unitario`, `cantidad`, `nota`. Editables mientras el encargo esté `pendiente`.
+
+**abono**
+- `encargo_id`, `jornada_id` (la del día en que se recibió), `metodo` (efectivo, tarjeta, transferencia), `monto`, `referencia`, `estado` (enum: `pendiente`, `aplicado`, `devuelto`), `aplicado_en`, `devuelto_en`.
+- La suma de abonos `pendiente` no puede superar el total del encargo.
+
+**Caja de encargos.** No es una tabla: es la suma de `abono.monto` con `metodo = efectivo` y `estado = pendiente`. Representa el dinero físico guardado aparte. Se muestra en la pantalla de encargos y en el cierre de caja como dato informativo.
+
+**Entregar** (solo con jornada abierta, encargo `pendiente`): en una transacción,
+1. Crea `pedido` con `origen = encargo`, `numero_mesa = 0`, `mesero_id` nulo, `encargo_id`.
+2. Crea `cuenta` 1 con `cliente_id = encargo.cliente_id`.
+3. Crea `ronda` 1 con `origen = caja`, `enviada_a_cocina = false`, y copia cada `encargo_item` como `pedido_item` con `afecta_stock = false`. No genera movimientos de stock.
+4. Convierte cada abono `pendiente` en un `pago` de la cuenta con el mismo método y monto, `referencia = "Abono DD/MM"`, y marca el abono `aplicado`.
+5. Marca el encargo `entregado` y guarda `pedido_id`.
+Caja queda dentro del pedido con el saldo a cobrar. Desde ahí el cobro, la división de cuenta y el ticket funcionan como en cualquier pedido. La venta completa, abonos incluidos, queda registrada en la jornada de entrega.
+
+**Cancelar** (encargo `pendiente`, con motivo): caja elige qué hacer con los abonos pendientes.
+- **Devolver**: cada abono pasa a `devuelto` con `devuelto_en`. El efectivo sale de la caja de encargos; no toca la caja del día. El cierre lo muestra como "Abonos devueltos hoy".
+- **Retener**: se crea un pedido `origen = encargo` con un único ítem libre "Encargo #N cancelado" por el total de los abonos, cuenta 1 con el cliente, y los abonos se aplican como pagos. Queda cobrado de inmediato. Así el dinero entra a la caja del día como venta y aparece en reportes. `abono_retenido = true`.
+- Sin abonos: solo cambia el estado.
+
+### 4.5 Cálculo de totales de una cuenta
 
 ```
 subtotal   = suma de (precio_unitario × cantidad) de ítems no anulados de la cuenta
@@ -150,9 +182,14 @@ Redondeo a 2 decimales en cada paso. `descuento` nunca puede superar `subtotal`.
 9. **Cuenta cobrada es inmutable.** Devoluciones posteriores se registran como egreso tipo `devolucion_cliente` vinculado al pedido.
 10. **Anular pedido completo** (caja, con motivo): todos los ítems se anulan, stock devuelto, estado `anulado`, mesa libre. Solo si ninguna cuenta tiene pagos.
 11. **Apertura de caja** registra `fondo_inicial` y muestra los productos con stock para ajustar (cada ajuste genera movimiento `apertura`).
-12. **Cierre de caja** exige que no haya pedidos `abiertos`. Calcula y congela totales. `efectivo_esperado = fondo_inicial + total_efectivo − total_egresos`. Caja ingresa `efectivo_contado`; `diferencia_efectivo = efectivo_contado − efectivo_esperado`. Genera respaldo automático.
+12. **Cierre de caja** exige que no haya pedidos `abiertos`. Calcula y congela totales. `efectivo_esperado = fondo_inicial + total_efectivo − total_egresos`, donde `total_efectivo` incluye los abonos en efectivo aplicados ese día al entregar encargos (ese dinero pasa físicamente de la caja de encargos a la caja del día). Los abonos recibidos ese día no entran en `efectivo_esperado`: están en la caja de encargos. El cierre muestra como información: abonos recibidos hoy por método, abonos devueltos hoy, saldo de la caja de encargos. Caja ingresa `efectivo_contado`; `diferencia_efectivo = efectivo_contado − efectivo_esperado`. Genera respaldo automático.
 13. **Avisos de stock.** `stock_actual <= umbral_stock_bajo` se muestra en amarillo con "Quedan N"; `0` en gris con "Agotado" y no seleccionable. Aplica en mesero, caja, admin y cocina (si activa).
-14. **Idempotencia.** Cada envío de ronda y cada pago lleva un `id` generado en el cliente. Si el servidor ya lo tiene, responde con el resultado anterior sin duplicar.
+14. **Idempotencia.** Cada envío de ronda, cada pago y cada abono lleva un `id` generado en el cliente. Si el servidor ya lo tiene, responde con el resultado anterior sin duplicar.
+15. **Ítem libre.** Mesero y caja pueden agregar un ítem con nombre y precio escritos a mano, sin producto asociado y sin stock. Solo si `permitir_items_libres` está activo; si admin lo desactiva, el botón desaparece en ambas pantallas y el servidor rechaza el ítem. Cocina lo muestra como cualquier otro. En reportes se agrupan en la fila "Ítems libres".
+16. **Encargos solo desde caja** y solo con jornada abierta, tanto para crear como para abonar, entregar o cancelar. El cliente es obligatorio (basta el nombre). Los ítems del encargo se pueden editar mientras esté pendiente; la suma de abonos nunca supera el total.
+17. **Los abonos no son venta.** Se registran el día que se reciben pero no suman a ventas ni al arqueo de ese día. La venta se registra completa el día de entrega, cuando el encargo se convierte en pedido y los abonos se aplican como pagos.
+18. **Los encargos no tocan stock.** Ni al crear ni al entregar. Se preparan aparte del menú del día.
+19. **Cancelar un encargo con abono** obliga a caja a elegir devolver o retener, según 4.4.
 
 ## 6. API
 
@@ -166,7 +203,7 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 | `GET /mesas` | Mesas con estado, pedido abierto, total, aviso de ronda lista |
 | `POST /pedidos` | Crear pedido `{numero_mesa, mesero_id}` |
 | `GET /pedidos/:id` | Detalle con rondas, ítems, pagos, totales |
-| `POST /pedidos/:id/rondas` | Enviar ronda `{id, origen, enviada_a_cocina, items:[{producto_id, cantidad, nota}]}` |
+| `POST /pedidos/:id/rondas` | Enviar ronda `{id, origen, enviada_a_cocina, items:[{producto_id | null, es_libre, nombre, precio, cantidad, nota}]}` |
 | `POST /pedidos/:id/items/:itemId/anular` | `{motivo}` |
 | `PATCH /pedidos/:id` | Notas |
 | `POST /pedidos/:id/cuentas` | Crear cuenta adicional (solo con jornada abierta y pedido abierto) |
@@ -183,6 +220,13 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 | `POST /jornadas/cerrar` | `{efectivo_contado}` |
 | `GET /jornadas` y `GET /jornadas/:id/reporte` | Historial y reporte de cierre, ventas por producto, stock restante |
 | `GET/POST /egresos` | Listar de la jornada, crear |
+| `GET /encargos` | Pendientes ordenados por fecha de entrega, con total, abonado, saldo; más saldo de caja de encargos. Filtro por estado y fecha |
+| `POST /encargos` | Crear `{cliente_id, fecha_entrega, notas, items:[…]}` |
+| `PATCH /encargos/:id` | Editar ítems, fecha, notas (solo pendiente) |
+| `POST /encargos/:id/abonos` | `{id, metodo, monto, referencia}` |
+| `POST /encargos/:id/entregar` | Convierte en pedido y devuelve `{pedido_id}` |
+| `POST /encargos/:id/cancelar` | `{motivo, abonos: "devolver" | "retener"}` |
+| `GET /encargos/:id/comprobante` | HTML imprimible del encargo con abonos recibidos, para entregar al cliente como constancia |
 | `GET/POST/PATCH /clientes` | Buscar por nombre o identificación, crear, editar |
 | `GET/POST/PATCH /admin/categorias`, `/admin/productos` | Catálogo. Subida de foto en `POST /admin/productos/:id/foto` |
 | `POST /admin/productos/:id/stock` | Ajuste manual `{stock, motivo}` |
@@ -198,8 +242,9 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 1. Primera vez: elegir nombre de la lista de meseros activos. Se guarda en el navegador. Botón "Cambiar" siempre visible.
 2. Cuadrícula de mesas: libre (blanco), ocupada (azul, con total y hora del último envío), con ronda lista (verde parpadeante, si cocina activa). Botón "Para llevar" crea un pedido sin mesa.
 3. Dentro de una mesa: lista de rondas ya enviadas (solo lectura) y una zona "Nueva ronda" donde agrega ítems desde el catálogo por categorías. Cada producto muestra precio y, si controla stock, "Quedan N". Toque agrega 1; controles +/−; campo de nota por ítem.
-4. "Enviar a cocina" (o "Enviar" si cocina inactiva). La ronda pendiente se conserva en el navegador si se cae la red.
-5. Si jornada cerrada: pantalla "Caja cerrada, no se pueden tomar pedidos".
+4. Botón "Ítem libre" junto al catálogo (si está permitido): nombre, precio y cantidad.
+5. "Enviar a cocina" (o "Enviar" si cocina inactiva). La ronda pendiente se conserva en el navegador si se cae la red.
+6. Si jornada cerrada: pantalla "Caja cerrada, no se pueden tomar pedidos".
 
 ### 7.2 Cocina `/cocina`
 - Solo visible si `cocina_activa`; de lo contrario muestra "Pantalla de cocina desactivada. Actívala en Admin".
@@ -211,12 +256,13 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 - Barra superior: estado de jornada, fondo inicial, ventas del día. Botones "Abrir caja" / "Cerrar caja".
 - Sin jornada abierta solo se puede abrir caja. Al abrir: fondo inicial y tabla de stock editable.
 - Mesas ocupadas con total y saldo. Dentro de una mesa:
-  - Ítems por ronda con origen. "Agregar ítems" abre el catálogo; al confirmar elige "Enviar a cocina" o "Ya servido".
+  - Ítems por ronda con origen. "Agregar ítems" abre el catálogo, con botón "Ítem libre" si está permitido; al confirmar elige "Enviar a cocina" o "Ya servido".
   - "Anular" por ítem con motivo. "Anular pedido" completo si ninguna cuenta tiene pagos.
   - Por defecto se ve una sola cuenta con todos los ítems. Botón "Dividir cuenta": aparece la lista de ítems a la izquierda y las cuentas a la derecha ("Cuenta 1", "Cuenta 2", botón "+ Cuenta"). Tocar un ítem y luego una cuenta lo mueve; un ítem con cantidad mayor a 1 pregunta cuántas unidades mover. Las cuentas ya cobradas se muestran bloqueadas.
   - Por cada cuenta abierta: descuento (monto o %), propina (con sugerido), cliente (buscar por identificación o nombre, crear al vuelo).
   - Pagos por cuenta: lista de pagos registrados, formulario método + monto + referencia, botón "Cobrar exacto" que rellena el saldo. Al cubrir el total de la cuenta se abre su ticket en pestaña nueva. La mesa se libera cuando todas las cuentas están cobradas.
 - "Egresos": lista de la jornada y formulario.
+- "Encargos": lista de pendientes por fecha de entrega (los de hoy resaltados) con total, abonado y saldo, y el saldo de la caja de encargos arriba. "Nuevo encargo": cliente (buscar o crear con solo el nombre), fecha de entrega, ítems del catálogo o libres, notas. Dentro de un encargo: "Abonar" (método, monto, referencia), "Imprimir constancia", "Entregar" (abre el pedido resultante con el saldo a cobrar), "Cancelar" (motivo y devolver o retener).
 - "Cerrar caja": muestra resumen, pide efectivo contado, muestra diferencia, confirma, genera respaldo, imprime reporte de cierre.
 - Indicador de ronda lista por mesa si cocina activa.
 
@@ -225,33 +271,35 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 - Meseros: alta, baja, activo.
 - Mesas: cantidad. Cambiarla a menos exige que las mesas sobrantes estén libres.
 - Clientes: listado, búsqueda, edición.
-- Configuración: nombre del local, símbolo, propina sugerida, umbral de stock, cocina activa, sonido.
-- Reportes: por jornada (actual e historial): cierre de caja, ventas por producto, stock restante, egresos. Exportar cada reporte a CSV.
+- Configuración: nombre del local, símbolo, propina sugerida, umbral de stock, cocina activa, sonido, permitir ítems libres.
+- Reportes: por jornada (actual e historial): cierre de caja (incluye abonos recibidos, devueltos y saldo de caja de encargos), ventas por producto (con fila "Ítems libres"), stock restante, egresos, encargos entregados y cancelados. Exportar cada reporte a CSV.
 - Respaldos: crear, listar, restaurar. Descargar log.
 - Datos de ejemplo: cargar y borrar.
 
 ### 7.5 Ticket
-Un ticket por cuenta. HTML con CSS `@media print` para 80 mm y hoja A4. Contenido: nombre del local, número de pedido y de cuenta si la mesa se dividió (por ejemplo "Pedido #37 · Cuenta 2 de 2"), mesa, mesero, fecha y hora, ítems de esa cuenta (cantidad, nombre, precio, subtotal), ítems anulados omitidos, subtotal, descuento, propina, total, pagos por método, cliente (nombre e identificación) si hay. Pie: "Precios incluyen impuestos". Se abre con `window.print()`.
+Un ticket por cuenta. HTML con CSS `@media print` para 80 mm y hoja A4. Contenido: nombre del local, número de pedido y de cuenta si la mesa se dividió (por ejemplo "Pedido #37 · Cuenta 2 de 2"), mesa o "Para llevar" o "Encargo #N", mesero si lo hay, fecha y hora, ítems de esa cuenta (cantidad, nombre, precio, subtotal), ítems anulados omitidos, subtotal, descuento, propina, total, pagos por método (los abonos con su fecha), cliente (nombre, e identificación si la registró). Sin leyenda de impuestos: el ticket no menciona impuestos. Se abre con `window.print()`.
+
+Constancia de encargo: mismo formato, con número de encargo, fecha de entrega, ítems, total, abonos recibidos y saldo pendiente. Se entrega al cliente al abonar.
 
 ## 8. Manejo de errores
 
 - **Concurrencia de stock**: transacción con `SELECT … FOR UPDATE` sobre el producto. Segundo pedido recibe 409 "Se acaba de agotar".
 - **Red caída en el cliente**: franja roja "Sin conexión"; botones de envío desactivados; ronda en curso persistida en `localStorage`; reconexión automática de SSE y recarga de estado.
 - **Reinicio de la PC de caja**: todo el estado está en PostgreSQL. El lanzador reabre y la jornada sigue abierta.
-- **Validaciones** (409 con mensaje): sin jornada abierta; pago que excede el total de la cuenta; cierre con pedidos abiertos; descuento mayor al subtotal; modificar cuenta o pedido cobrados; mover ítems desde o hacia una cuenta cobrada; eliminar la cuenta 1 o una cuenta con ítems; stock negativo en ajuste; mesa fuera de rango; mesero inactivo; producto inactivo o agotado.
+- **Validaciones** (409 con mensaje): sin jornada abierta; pago que excede el total de la cuenta; abono que excede el saldo del encargo; entregar o cancelar un encargo que no está pendiente; ítem libre con la opción desactivada o con nombre vacío; cierre con pedidos abiertos; descuento mayor al subtotal; modificar cuenta o pedido cobrados; mover ítems desde o hacia una cuenta cobrada; eliminar la cuenta 1 o una cuenta con ítems; stock negativo en ajuste; mesa fuera de rango; mesero inactivo; producto inactivo o agotado.
 - **Errores inesperados**: 500 con mensaje genérico en pantalla y detalle en `logs/servidor.log` (rotación diaria, 30 días).
 - **PostgreSQL no arranca**: el lanzador muestra el error y ofrece "Ver registro" y "Reintentar".
 
 ## 9. Pruebas
 
-- **Unitarias** (Vitest): cálculo de totales por cuenta, reglas de descuento, división de ítems entre cuentas, lógica de stock, cierre de caja con efectivo esperado, idempotencia.
+- **Unitarias** (Vitest): cálculo de totales por cuenta, reglas de descuento, división de ítems entre cuentas, lógica de stock, cierre de caja con efectivo esperado incluyendo abonos aplicados y excluyendo abonos recibidos, conversión de encargo a pedido, cancelación con devolver y retener, idempotencia.
 - **Integración** (Vitest + PostgreSQL de prueba en la misma instancia portátil, base `cafeteria_test`): cada ruta de la API, incluyendo concurrencia de stock con dos peticiones simultáneas.
-- **Extremo a extremo** (Playwright): abrir caja → mesero toma pedido → caja agrega ítem → cocina marca lista → caja divide en dos cuentas con clientes distintos y cobra una con efectivo y transferencia → egreso → cerrar caja → reporte correcto.
+- **Extremo a extremo** (Playwright): abrir caja → mesero toma pedido con un ítem libre → caja agrega ítem → cocina marca lista → caja divide en dos cuentas con clientes distintos y cobra una con efectivo y transferencia → caja crea encargo con abono → egreso → cerrar caja (abono no cuenta en arqueo) → abrir caja al día siguiente → entregar encargo y cobrar saldo → cerrar caja (abono sí cuenta) → reportes correctos.
 - Todas corren con `npm test`. La construcción del ejecutable se prueba en Windows antes de entregar.
 
 ## 10. Fuera del alcance del Núcleo
 
-Login o PIN, impresora térmica directa, acceso desde internet, factura electrónica, puntos o wallet, menú digital público, desglose de IVA, múltiples locales, reservas, recetas por ingrediente.
+Login o PIN, impresora térmica directa, acceso desde internet, factura electrónica, puntos o wallet, menú digital público, desglose de IVA, múltiples locales, reservas de mesa, recetas por ingrediente, recordatorios automáticos al cliente por encargos.
 
 ## 11. Ganchos para módulos siguientes
 
