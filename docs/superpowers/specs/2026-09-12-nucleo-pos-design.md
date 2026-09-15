@@ -93,7 +93,7 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 ### 4.2 Operación
 
 **jornada**
-- `abierta_en`, `cerrada_en` (nulo mientras abierta), `fondo_inicial`, `efectivo_contado` (nulo hasta cerrar), y totales congelados al cerrar: `total_ventas`, `total_efectivo`, `total_tarjeta`, `total_transferencia`, `total_descuentos`, `total_propinas`, `total_egresos`, `efectivo_esperado`, `diferencia_efectivo`.
+- `abierta_en`, `cerrada_en` (nulo mientras abierta), `fondo_inicial`, `efectivo_contado` (nulo hasta cerrar), y totales congelados al cerrar: `total_ventas`, `total_efectivo`, `total_tarjeta`, `total_transferencia`, `total_descuentos`, `total_propinas`, `total_perdidas`, `total_egresos`, `efectivo_esperado`, `diferencia_efectivo`.
 - Regla: solo una jornada con `cerrada_en` nulo a la vez (índice único parcial).
 
 **pedido**
@@ -102,7 +102,7 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 - Un pedido pasa a `cobrado` cuando todas sus cuentas están cobradas.
 
 **cuenta**
-- `pedido_id`, `numero` (1, 2, 3… dentro del pedido), `cliente_id` (nulo), `descuento_tipo` (enum: `ninguno`, `monto`, `porcentaje`), `descuento_valor`, `propina`, `estado` (enum: `abierta`, `cobrada`), `cobrada_en`.
+- `pedido_id`, `numero` (1, 2, 3… dentro del pedido), `cliente_id` (nulo), `descuento_tipo` (enum: `ninguno`, `monto`, `porcentaje`), `descuento_valor`, `propina`, `perdida` (monto, por defecto 0: parte del total que el cliente no pagó y se asumió como pérdida), `estado` (enum: `abierta`, `cobrada`), `cobrada_en`.
 - Al crear un pedido se crea automáticamente la cuenta 1. Todos los ítems nacen asignados a ella. El mesero nunca ve cuentas.
 - Caja puede crear cuentas adicionales solo al momento de cobrar, y mover ítems entre cuentas abiertas. Cualquier cuenta vacía se puede eliminar siempre que el pedido conserve al menos una cuenta (ajuste del 2026-09-15: si todos los ítems de la cuenta 1 se mueven a otra, la cuenta 1 vacía debe poder eliminarse para que la mesa se libere).
 - Cliente, descuento y propina viven en la cuenta, no en el pedido, para que cada persona tenga los suyos.
@@ -164,8 +164,10 @@ subtotal   = suma de (precio_unitario × cantidad) de ítems no anulados de la c
 descuento  = 0 | descuento_valor | subtotal × descuento_valor / 100   (según descuento_tipo)
 total      = subtotal − descuento + propina
 pagado     = suma de pagos de la cuenta
-saldo      = total − pagado
+saldo      = total − pagado − perdida
 ```
+
+`perdida` solo puede ser mayor a 0 cuando la cuenta se cierra por anulación con pagos parciales (regla 10). En ventas se cuenta el total completo; la pérdida se informa aparte en el cierre.
 
 Redondeo a 2 decimales en cada paso. `descuento` nunca puede superar `subtotal`. El total del pedido, que se muestra en la cuadrícula de mesas, es la suma de los totales de sus cuentas.
 
@@ -182,10 +184,10 @@ Redondeo a 2 decimales en cada paso. `descuento` nunca puede superar `subtotal`.
 9. **Cuenta cobrada es inmutable.** Devoluciones posteriores se registran como egreso tipo `devolucion_cliente` vinculado al pedido.
 10. **Anular pedido completo** (caja, con motivo). Si ninguna cuenta tiene pagos: todos los ítems se anulan, stock devuelto, estado `anulado`, mesa libre. Si alguna cuenta tiene pagos, caja debe elegir qué pasa con lo pagado (regla agregada el 2026-09-15 para el caso "cliente pagó parte y se fue"):
     - **Devolver**: se crea automáticamente un egreso tipo `devolucion_cliente` por el total pagado del pedido, con motivo "Devolución por anulación del pedido #N: <motivo>" y `pedido_id` vinculado. Todos los ítems se anulan, stock devuelto, pedido `anulado`, mesa libre. El arqueo cuadra porque el dinero recibido queda compensado por el egreso.
-    - **Retener**: en cada cuenta con pagos, la propina pasa a 0 y el descuento se fija en `monto = subtotal − pagado` para que el total iguale lo pagado; la cuenta queda `cobrada`; sus ítems no se anulan (se sirvieron) y no devuelven stock. Las cuentas sin pagos se anulan con sus ítems y stock devuelto. El pedido queda `cobrado` con la nota "Anulado parcialmente: <motivo>". Es una venta parcial y aparece en reportes.
-    - Si caja quiere devolver stock de ítems no consumidos antes de retener, anula esos ítems uno por uno primero.
+    - **Pérdida** (el cliente se fue sin pagar el resto): en cada cuenta con pagos, `perdida = total − pagado`, la cuenta queda `cobrada`; sus ítems no se anulan (se consumieron) y no devuelven stock. Las cuentas sin pagos se anulan con sus ítems y stock devuelto. El pedido queda `cobrado` con la nota "Cerrado con pérdida: <motivo>". La venta se registra completa y la pérdida aparece en el cierre de caja como "Pérdidas por consumo no pagado" y en reportes. Dave, 2026-09-15: "si el cliente ya se fue sin pagar la otra mitad fue una estafa, debe asumirse como pérdida".
+    - Si caja quiere devolver stock de ítems no consumidos antes de cerrar con pérdida, anula esos ítems uno por uno primero.
 11. **Apertura de caja** registra `fondo_inicial` y muestra los productos con stock para ajustar (cada ajuste genera movimiento `apertura`).
-12. **Cierre de caja** exige que no haya pedidos `abiertos` (mensaje: "Hay mesas ocupadas; cobra o anula los pedidos antes de cerrar"). Es intencional: cada mesa termina cobrada o anulada dentro de su jornada y el arqueo nunca tiene dinero sin explicar. Calcula y congela totales. `efectivo_esperado = fondo_inicial + total_efectivo − total_egresos`, donde `total_efectivo` incluye los abonos en efectivo aplicados ese día al entregar encargos (ese dinero pasa físicamente de la caja de encargos a la caja del día). Los abonos recibidos ese día no entran en `efectivo_esperado`: están en la caja de encargos. El cierre muestra como información: abonos recibidos hoy por método, abonos devueltos hoy, saldo de la caja de encargos. Caja ingresa `efectivo_contado`; `diferencia_efectivo = efectivo_contado − efectivo_esperado`. Genera respaldo automático.
+12. **Cierre de caja** exige que no haya pedidos `abiertos` (mensaje: "Hay mesas ocupadas; cobra o anula los pedidos antes de cerrar"). Es intencional: cada mesa termina cobrada o anulada dentro de su jornada y el arqueo nunca tiene dinero sin explicar. Calcula y congela totales. `efectivo_esperado = fondo_inicial + total_efectivo − total_egresos`, donde `total_efectivo` incluye los abonos en efectivo aplicados ese día al entregar encargos (ese dinero pasa físicamente de la caja de encargos a la caja del día). Los abonos recibidos ese día no entran en `efectivo_esperado`: están en la caja de encargos. El cierre muestra como información: abonos recibidos hoy por método, abonos devueltos hoy, saldo de la caja de encargos, y pérdidas por consumo no pagado (`total_perdidas`). Caja ingresa `efectivo_contado`; `diferencia_efectivo = efectivo_contado − efectivo_esperado`. Genera respaldo automático.
 13. **Avisos de stock.** `stock_actual <= umbral_stock_bajo` se muestra en amarillo con "Quedan N"; `0` en gris con "Agotado" y no seleccionable. Aplica en mesero, caja, admin y cocina (si activa).
 14. **Idempotencia.** Cada envío de ronda, cada pago y cada abono lleva un `id` generado en el cliente. Si el servidor ya lo tiene, responde con el resultado anterior sin duplicar.
 15. **Ítem libre.** Mesero y caja pueden agregar un ítem con nombre y precio escritos a mano, sin producto asociado y sin stock. Solo si `permitir_items_libres` está activo; si admin lo desactiva, el botón desaparece en ambas pantallas y el servidor rechaza el ítem. Cocina lo muestra como cualquier otro. En reportes se agrupan en la fila "Ítems libres".
@@ -215,7 +217,7 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 | `PATCH /cuentas/:id` | Descuento, propina, cliente |
 | `POST /cuentas/:id/pagos` | `{id, metodo, monto, referencia}` |
 | `GET /cuentas/:id/ticket` | HTML imprimible de esa cuenta |
-| `POST /pedidos/:id/anular` | `{motivo, pagos?: "devolver" | "retener"}`; `pagos` es obligatorio si alguna cuenta tiene pagos (400 si falta) |
+| `POST /pedidos/:id/anular` | `{motivo, pagos?: "devolver" | "perdida"}`; `pagos` es obligatorio si alguna cuenta tiene pagos (400 si falta) |
 | `GET /cocina/rondas` | Rondas pendientes enviadas a cocina |
 | `POST /rondas/:id/lista` | Marcar lista |
 | `POST /rondas/:id/aviso-visto` | `{pantalla: mesero|caja}` |
@@ -260,7 +262,7 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 - Sin jornada abierta solo se puede abrir caja. Al abrir: fondo inicial y tabla de stock editable.
 - Mesas ocupadas con total y saldo. Dentro de una mesa:
   - Ítems por ronda con origen. "Agregar ítems" abre el catálogo, con botón "Ítem libre" si está permitido; al confirmar elige "Enviar a cocina" o "Ya servido".
-  - "Anular" por ítem con motivo. "Anular pedido" completo con motivo; si hay pagos, pregunta "Devolver el dinero" o "Retener lo pagado".
+  - "Anular" por ítem con motivo. "Anular pedido" completo con motivo; si hay pagos, pregunta "Devolver el dinero" o "Cerrar con pérdida".
   - Por defecto se ve una sola cuenta con todos los ítems. Botón "Dividir cuenta": aparece la lista de ítems a la izquierda y las cuentas a la derecha ("Cuenta 1", "Cuenta 2", botón "+ Cuenta"). Tocar un ítem y luego una cuenta lo mueve; un ítem con cantidad mayor a 1 pregunta cuántas unidades mover. Las cuentas ya cobradas se muestran bloqueadas.
   - Por cada cuenta abierta: descuento (monto o %), propina (con sugerido), cliente (buscar por identificación o nombre, crear al vuelo).
   - Pagos por cuenta: lista de pagos registrados, formulario método + monto + referencia, botón "Cobrar exacto" que rellena el saldo. Al cubrir el total de la cuenta se abre su ticket en pestaña nueva. La mesa se libera cuando todas las cuentas están cobradas.
@@ -275,7 +277,7 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 - Mesas: cantidad. Cambiarla a menos exige que las mesas sobrantes estén libres.
 - Clientes: listado, búsqueda, edición.
 - Configuración: nombre del local, símbolo, propina sugerida, umbral de stock, cocina activa, sonido, permitir ítems libres.
-- Reportes: por jornada (actual e historial): cierre de caja (incluye abonos recibidos, devueltos y saldo de caja de encargos), ventas por producto (con fila "Ítems libres"), stock restante, egresos, encargos entregados y cancelados. Exportar cada reporte a CSV.
+- Reportes: por jornada (actual e historial): cierre de caja (incluye abonos recibidos, devueltos, saldo de caja de encargos y pérdidas por consumo no pagado), ventas por producto (con fila "Ítems libres"), stock restante, egresos, encargos entregados y cancelados. Exportar cada reporte a CSV.
 - Respaldos: crear, listar, restaurar. Descargar log.
 - Datos de ejemplo: cargar y borrar.
 
