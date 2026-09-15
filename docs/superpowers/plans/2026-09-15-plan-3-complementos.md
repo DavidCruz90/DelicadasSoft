@@ -1003,7 +1003,7 @@ export async function reporteJornada(db: Db, jornadaId: string) {
   const n = (v: string | null) => Number(v ?? 0);
   const cierre = j.cerrada_en ? {
     total_ventas: n(j.total_ventas), total_efectivo: n(j.total_efectivo), total_tarjeta: n(j.total_tarjeta), total_transferencia: n(j.total_transferencia),
-    total_descuentos: n(j.total_descuentos), total_propinas: n(j.total_propinas), total_egresos: n(j.total_egresos),
+    total_descuentos: n(j.total_descuentos), total_propinas: n(j.total_propinas), total_perdidas: n(j.total_perdidas), total_egresos: n(j.total_egresos),
     total_abonos_recibidos: n(j.total_abonos_recibidos), total_abonos_devueltos: n(j.total_abonos_devueltos),
     efectivo_esperado: n(j.efectivo_esperado), efectivo_contado: n(j.efectivo_contado), diferencia_efectivo: n(j.diferencia_efectivo), fondo_inicial: n(j.fondo_inicial),
   } : { ...(await resumenJornada(db, j)), fondo_inicial: n(j.fondo_inicial), efectivo_contado: null, diferencia_efectivo: null };
@@ -1066,7 +1066,7 @@ import { api } from '../api';
 import { useEventos } from '../eventos';
 import { dinero } from '../comun/dinero';
 
-const ETIQUETAS: [string, string][] = [['fondo_inicial', 'Fondo inicial'], ['total_ventas', 'Ventas'], ['total_descuentos', 'Descuentos'], ['total_propinas', 'Propinas'], ['total_efectivo', 'Cobrado en efectivo'], ['total_tarjeta', 'Cobrado con tarjeta'], ['total_transferencia', 'Cobrado por transferencia'], ['total_egresos', 'Egresos'], ['total_abonos_recibidos', 'Abonos recibidos (caja de encargos)'], ['total_abonos_devueltos', 'Abonos devueltos'], ['efectivo_esperado', 'Efectivo esperado'], ['efectivo_contado', 'Efectivo contado'], ['diferencia_efectivo', 'Diferencia']];
+const ETIQUETAS: [string, string][] = [['fondo_inicial', 'Fondo inicial'], ['total_ventas', 'Ventas'], ['total_descuentos', 'Descuentos'], ['total_propinas', 'Propinas'], ['total_efectivo', 'Cobrado en efectivo'], ['total_tarjeta', 'Cobrado con tarjeta'], ['total_transferencia', 'Cobrado por transferencia'], ['total_perdidas', 'Pérdidas por consumo no pagado'], ['total_egresos', 'Egresos'], ['total_abonos_recibidos', 'Abonos recibidos (caja de encargos)'], ['total_abonos_devueltos', 'Abonos devueltos'], ['efectivo_esperado', 'Efectivo esperado'], ['efectivo_contado', 'Efectivo contado'], ['diferencia_efectivo', 'Diferencia']];
 
 export function Reportes({ simbolo }: { simbolo: string }) {
   const [jornadas, setJornadas] = useState<any[]>([]);

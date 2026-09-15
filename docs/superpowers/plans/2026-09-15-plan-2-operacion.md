@@ -72,8 +72,8 @@ tests/ayuda/datos.ts                helpers: abrirCajaDePrueba, crearMenuDePrueb
 - Produces:
   - `redondear(n: number): number` → 2 decimales.
   - `type ItemParaTotal = { precio_unitario: string | number; cantidad: number; anulado: boolean }`
-  - `type CuentaParaTotal = { descuento_tipo: 'ninguno' | 'monto' | 'porcentaje'; descuento_valor: string | number; propina: string | number }`
-  - `calcularTotales(items, cuenta, pagos: { monto: string | number }[]): { subtotal, descuento, total, pagado, saldo }` (números).
+  - `type CuentaParaTotal = { descuento_tipo: 'ninguno' | 'monto' | 'porcentaje'; descuento_valor: string | number; propina: string | number; perdida?: string | number }`
+  - `calcularTotales(items, cuenta, pagos: { monto: string | number }[]): { subtotal, descuento, total, pagado, perdida, saldo }` (números; `saldo = total − pagado − perdida`).
   - `validarDescuento(tipo, valor, subtotal)`: lanza `ErrorValidacion` si valor < 0, porcentaje > 100 o monto > subtotal.
 
 - [ ] **Step 1: Escribir la prueba**
@@ -92,13 +92,18 @@ test('redondear a 2 decimales', () => {
 test('totales sin descuento ni propina', () => {
   const t = calcularTotales([{ precio_unitario: '2.50', cantidad: 2, anulado: false }, { precio_unitario: '4.50', cantidad: 1, anulado: false }, { precio_unitario: '9.99', cantidad: 1, anulado: true }],
     { descuento_tipo: 'ninguno', descuento_valor: '0', propina: '0' }, []);
-  expect(t).toEqual({ subtotal: 9.5, descuento: 0, total: 9.5, pagado: 0, saldo: 9.5 });
+  expect(t).toEqual({ subtotal: 9.5, descuento: 0, total: 9.5, pagado: 0, perdida: 0, saldo: 9.5 });
 });
 
 test('descuento por porcentaje, propina y pagos parciales', () => {
   const t = calcularTotales([{ precio_unitario: 12.5, cantidad: 1, anulado: false }],
     { descuento_tipo: 'porcentaje', descuento_valor: 10, propina: 1 }, [{ monto: '6.25' }, { monto: 6 }]);
-  expect(t).toEqual({ subtotal: 12.5, descuento: 1.25, total: 12.25, pagado: 12.25, saldo: 0 });
+  expect(t).toEqual({ subtotal: 12.5, descuento: 1.25, total: 12.25, pagado: 12.25, perdida: 0, saldo: 0 });
+});
+
+test('la perdida reduce el saldo sin tocar el total', () => {
+  const t = calcularTotales([{ precio_unitario: 10, cantidad: 1, anulado: false }], { descuento_tipo: 'ninguno', descuento_valor: 0, propina: 0, perdida: 6 }, [{ monto: 4 }]);
+  expect(t).toEqual({ subtotal: 10, descuento: 0, total: 10, pagado: 4, perdida: 6, saldo: 0 });
 });
 
 test('descuento por monto', () => {
@@ -129,7 +134,7 @@ export function redondear(n: number): number {
 }
 
 export type ItemParaTotal = { precio_unitario: string | number; cantidad: number; anulado: boolean };
-export type CuentaParaTotal = { descuento_tipo: 'ninguno' | 'monto' | 'porcentaje'; descuento_valor: string | number; propina: string | number };
+export type CuentaParaTotal = { descuento_tipo: 'ninguno' | 'monto' | 'porcentaje'; descuento_valor: string | number; propina: string | number; perdida?: string | number };
 
 export function validarDescuento(tipo: CuentaParaTotal['descuento_tipo'], valor: string | number, subtotal: number) {
   const v = Number(valor);
@@ -145,12 +150,13 @@ export function calcularTotales(items: ItemParaTotal[], cuenta: CuentaParaTotal,
   const descuento = cuenta.descuento_tipo === 'monto' ? redondear(Math.min(v, subtotal)) : cuenta.descuento_tipo === 'porcentaje' ? redondear(subtotal * v / 100) : 0;
   const total = redondear(subtotal - descuento + (Number(cuenta.propina) || 0));
   const pagado = redondear(pagos.reduce((s, p) => s + Number(p.monto), 0));
-  const saldo = redondear(total - pagado);
-  return { subtotal, descuento, total, pagado, saldo };
+  const perdida = redondear(Number(cuenta.perdida ?? 0) || 0);
+  const saldo = redondear(total - pagado - perdida);
+  return { subtotal, descuento, total, pagado, perdida, saldo };
 }
 ```
 
-- [ ] **Step 4: Ejecutar** → `npm test -- tests/totales.test.ts` → 5 passed.
+- [ ] **Step 4: Ejecutar** → `npm test -- tests/totales.test.ts` → 6 passed.
 
 - [ ] **Step 5: Commit y push**
 
@@ -314,7 +320,7 @@ export async function abrirJornada(db: Db, datos: { fondo_inicial: number; ajust
 export async function resumenJornada(db: Db, j: Jornada) {
   const pedidos = await db.select({ id: pedido.id }).from(pedido).where(eq(pedido.jornada_id, j.id));
   const ids = pedidos.map((p) => p.id);
-  let total_ventas = 0, total_efectivo = 0, total_tarjeta = 0, total_transferencia = 0, total_descuentos = 0, total_propinas = 0;
+  let total_ventas = 0, total_efectivo = 0, total_tarjeta = 0, total_transferencia = 0, total_descuentos = 0, total_propinas = 0, total_perdidas = 0;
   if (ids.length) {
     const cuentas = await db.select().from(cuenta).where(and(inArray(cuenta.pedido_id, ids), eq(cuenta.estado, 'cobrada')));
     const cids = cuentas.map((c) => c.id);
@@ -322,7 +328,7 @@ export async function resumenJornada(db: Db, j: Jornada) {
     const pagos = cids.length ? await db.select().from(pago).where(inArray(pago.cuenta_id, cids)) : [];
     for (const c of cuentas) {
       const t = calcularTotales(items.filter((i) => i.cuenta_id === c.id), c, []);
-      total_ventas += t.subtotal - t.descuento; total_descuentos += t.descuento; total_propinas += Number(c.propina);
+      total_ventas += t.subtotal - t.descuento; total_descuentos += t.descuento; total_propinas += Number(c.propina); total_perdidas += Number(c.perdida);
     }
     for (const p of pagos) {
       const m = Number(p.monto);
@@ -339,7 +345,7 @@ export async function resumenJornada(db: Db, j: Jornada) {
   const saldo_caja_encargos = pendientes.reduce((s, a) => s + Number(a.monto), 0);
   const fondo = Number(j.fondo_inicial);
   const efectivo_esperado = redondear(fondo + total_efectivo - total_egresos);
-  const r = { total_ventas, total_efectivo, total_tarjeta, total_transferencia, total_descuentos, total_propinas, total_egresos, total_abonos_recibidos, total_abonos_devueltos, saldo_caja_encargos, efectivo_esperado };
+  const r = { total_ventas, total_efectivo, total_tarjeta, total_transferencia, total_descuentos, total_propinas, total_perdidas, total_egresos, total_abonos_recibidos, total_abonos_devueltos, saldo_caja_encargos, efectivo_esperado };
   return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, redondear(v)])) as typeof r;
 }
 
@@ -353,7 +359,7 @@ export async function cerrarJornada(db: Db, datos: { efectivo_contado: number })
   const [cerrada] = await db.update(jornada).set({
     cerrada_en: new Date(), efectivo_contado: f(contado),
     total_ventas: f(r.total_ventas), total_efectivo: f(r.total_efectivo), total_tarjeta: f(r.total_tarjeta), total_transferencia: f(r.total_transferencia),
-    total_descuentos: f(r.total_descuentos), total_propinas: f(r.total_propinas), total_egresos: f(r.total_egresos),
+    total_descuentos: f(r.total_descuentos), total_propinas: f(r.total_propinas), total_perdidas: f(r.total_perdidas), total_egresos: f(r.total_egresos),
     total_abonos_recibidos: f(r.total_abonos_recibidos), total_abonos_devueltos: f(r.total_abonos_devueltos),
     efectivo_esperado: f(r.efectivo_esperado), diferencia_efectivo: f(redondear(contado - r.efectivo_esperado)), actualizado_en: new Date(),
   }).where(eq(jornada.id, j.id)).returning();
@@ -410,7 +416,7 @@ git add -A && git commit -m "Jornada: abrir y cerrar caja con arqueo y resumen" 
   - `type ItemEntrada = { producto_id?: string | null; es_libre?: boolean; nombre?: string; precio?: number | string; cantidad: number; nota?: string }`
   - `enviarRonda(db, pedidoId, { id: string; origen: 'mesero'|'caja'; enviada_a_cocina?: boolean; items: ItemEntrada[] }): Promise<{ ronda, repetida: boolean }>` — transacción con `FOR UPDATE` por producto; 409 `Se acaba de agotar: <nombre>` si no alcanza; 400 `La ronda no tiene ítems`; ítem libre 409 `Los ítems libres están desactivados` si config lo prohíbe; los ítems van a la cuenta abierta de menor número.
   - `anularItem(db, itemId, { motivo })` → 409 si cuenta cobrada o pedido no abierto; devuelve stock si `afecta_stock`.
-  - `anularPedido(db, pedidoId, { motivo, pagos?: 'devolver' | 'retener' })` → si ninguna cuenta tiene pagos: anula todo. Si hay pagos y falta `pagos`: 400 `Indica si el dinero pagado se devuelve o se retiene`. `devolver`: egreso `devolucion_cliente` automático por lo pagado, pedido `anulado`. `retener`: cuentas con pagos quedan `cobrada` con descuento `monto = subtotal − pagado` y propina 0; cuentas sin pagos se anulan; pedido `cobrado` con nota. Devuelve `{ pedido, stocks, egreso_id? }`.
+  - `anularPedido(db, pedidoId, { motivo, pagos?: 'devolver' | 'perdida' })` → si ninguna cuenta tiene pagos: anula todo. Si hay pagos y falta `pagos`: 400 `Indica si el dinero pagado se devuelve o se retiene`. `devolver`: egreso `devolucion_cliente` automático por lo pagado, pedido `anulado`. `perdida`: cuentas con pagos quedan `cobrada` con `perdida = total − pagado` (ítems intactos, sin devolver stock); cuentas sin pagos se anulan; pedido `cobrado` con nota "Cerrado con pérdida". Devuelve `{ pedido, stocks, egreso_id? }`.
   - `marcarAvisoVisto(db, rondaId, pantalla: 'mesero'|'caja')`.
   - Rutas: `GET /api/mesas`, `POST /api/pedidos`, `GET /api/pedidos/:id`, `POST /api/pedidos/:id/rondas` (201 nueva, 200 repetida), `POST /api/pedidos/:id/items/:itemId/anular`, `POST /api/pedidos/:id/anular`, `PATCH /api/pedidos/:id` (notas), `POST /api/rondas/:id/aviso-visto`.
 - Eventos: `mesa` con `{ pedido_id, numero_mesa }` en crear, ronda, anulaciones; `stock` con `{ producto_id, stock_actual }` por cada producto afectado.
@@ -530,7 +536,7 @@ test('item libre respeta la configuracion', async () => {
   expect(sinNombre.statusCode).toBe(400);
 });
 
-test('anular pedido con pagos: exige decision, devolver crea egreso, retener deja venta parcial', async () => {
+test('anular pedido con pagos: exige decision, devolver crea egreso, perdida registra lo impago', async () => {
   const mk = async (mesa: number) => {
     const p = (await post('/api/pedidos', { numero_mesa: mesa, mesero_id: meseroId })).json();
     await post(`/api/pedidos/${p.id}/rondas`, { id: randomUUID(), origen: 'mesero', items: [{ producto_id: menu.capuchinoId, cantidad: 4 }] }); // 10.00
@@ -550,14 +556,16 @@ test('anular pedido con pagos: exige decision, devolver crea egreso, retener dej
   expect(egresos[0]).toMatchObject({ tipo: 'devolucion_cliente', monto: '4.00' });
   expect(egresos[0].motivo).toContain('Se fue');
   const b = await mk(9);
-  const ret = await post(`/api/pedidos/${b}/anular`, { motivo: 'No volvió', pagos: 'retener' });
+  const ret = await post(`/api/pedidos/${b}/anular`, { motivo: 'No volvió', pagos: 'perdida' });
   expect(ret.statusCode).toBe(200);
   expect(ret.json().estado).toBe('cobrado');
   const det = (await get(`/api/pedidos/${b}`)).json();
   expect(det.cuentas[0].estado).toBe('cobrada');
-  expect(det.cuentas[0].totales).toMatchObject({ subtotal: 10, descuento: 6, total: 4, pagado: 4, saldo: 0 });
+  expect(det.cuentas[0].totales).toMatchObject({ subtotal: 10, descuento: 0, total: 10, pagado: 4, perdida: 6, saldo: 0 });
   expect(det.cuentas[0].items[0].anulado).toBe(false);
-  expect(det.notas).toContain('Anulado parcialmente');
+  expect(det.notas).toContain('Cerrado con pérdida');
+  const resumen = (await get('/api/jornadas/actual/resumen')).json();
+  expect(resumen.total_perdidas).toBe(6);
   const mesas = await get('/api/mesas');
   expect(mesas.json().mesas.find((m: any) => m.numero === 9).estado).toBe('libre');
 });
@@ -765,7 +773,7 @@ export async function anularItem(db: Db, pedidoId: string, itemId: string, datos
   });
 }
 
-export async function anularPedido(db: Db, pedidoId: string, datos: { motivo: string; pagos?: 'devolver' | 'retener' }) {
+export async function anularPedido(db: Db, pedidoId: string, datos: { motivo: string; pagos?: 'devolver' | 'perdida' }) {
   const j = await requerirJornadaAbierta(db);
   const motivo = String(datos?.motivo ?? '').trim();
   if (!motivo) throw new ErrorValidacion('La anulación necesita un motivo');
@@ -784,7 +792,7 @@ export async function anularPedido(db: Db, pedidoId: string, datos: { motivo: st
     const [anulado] = await db.update(pedido).set({ estado: 'anulado', notas: sql`coalesce(${pedido.notas}, '') || ${' Anulado: ' + motivo}`, actualizado_en: new Date() }).where(eq(pedido.id, p.id)).returning();
     return { pedido: anulado, stocks };
   }
-  if (datos.pagos !== 'devolver' && datos.pagos !== 'retener') throw new ErrorValidacion('Indica si el dinero pagado se devuelve o se retiene');
+  if (datos.pagos !== 'devolver' && datos.pagos !== 'perdida') throw new ErrorValidacion('Indica si el dinero pagado se devuelve o se retiene');
   if (datos.pagos === 'devolver') {
     for (const c of d.cuentas) await anularCuenta(c);
     const [eg] = await db.insert(egreso).values({ jornada_id: j.id, tipo: 'devolucion_cliente', monto: totalPagado.toFixed(2), motivo: `Devolución por anulación del pedido #${p.numero}: ${motivo}`, pedido_id: p.id }).returning();
@@ -797,12 +805,11 @@ export async function anularPedido(db: Db, pedidoId: string, datos: { motivo: st
     if (!pagosCuenta.length) { await anularCuenta(c); continue; }
     if (c.estado === 'cobrada') continue;
     const items = d.items.filter((i) => i.cuenta_id === c.id);
-    const pagado = redondear(pagosCuenta.reduce((s, x) => s + Number(x.monto), 0));
-    const subtotal = calcularTotales(items, { descuento_tipo: 'ninguno', descuento_valor: 0, propina: 0 }, []).subtotal;
-    const descuento = redondear(Math.max(0, subtotal - pagado));
-    await db.update(cuenta).set({ descuento_tipo: descuento > 0 ? 'monto' : 'ninguno', descuento_valor: descuento.toFixed(2), propina: '0.00', estado: 'cobrada', cobrada_en: ahora, actualizado_en: ahora }).where(eq(cuenta.id, c.id));
+    const t = calcularTotales(items, c, pagosCuenta);
+    const perdida = redondear(Math.max(0, t.total - t.pagado));
+    await db.update(cuenta).set({ perdida: perdida.toFixed(2), estado: 'cobrada', cobrada_en: ahora, actualizado_en: ahora }).where(eq(cuenta.id, c.id));
   }
-  const [cobrado] = await db.update(pedido).set({ estado: 'cobrado', cobrado_en: ahora, notas: sql`coalesce(${pedido.notas}, '') || ${' Anulado parcialmente: ' + motivo}`, actualizado_en: ahora }).where(eq(pedido.id, p.id)).returning();
+  const [cobrado] = await db.update(pedido).set({ estado: 'cobrado', cobrado_en: ahora, notas: sql`coalesce(${pedido.notas}, '') || ${' Cerrado con pérdida: ' + motivo}`, actualizado_en: ahora }).where(eq(pedido.id, p.id)).returning();
   return { pedido: cobrado, stocks };
 }
 
@@ -1797,7 +1804,7 @@ export function CerrarCaja({ simbolo, onCerrada, onCancelar }: { simbolo: string
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { api.get('/api/jornadas/actual/resumen').then(setR).catch((e) => setError(e.message)); }, []);
   if (!r) return <p>Cargando…</p>;
-  const filas: [string, number][] = [['Ventas', r.total_ventas], ['Descuentos', r.total_descuentos], ['Propinas', r.total_propinas], ['Cobrado en efectivo', r.total_efectivo], ['Cobrado con tarjeta', r.total_tarjeta], ['Cobrado por transferencia', r.total_transferencia], ['Egresos', r.total_egresos], ['Abonos de encargos recibidos hoy (caja aparte)', r.total_abonos_recibidos], ['Abonos devueltos hoy', r.total_abonos_devueltos], ['Saldo en caja de encargos', r.saldo_caja_encargos]];
+  const filas: [string, number][] = [['Ventas', r.total_ventas], ['Descuentos', r.total_descuentos], ['Propinas', r.total_propinas], ['Cobrado en efectivo', r.total_efectivo], ['Cobrado con tarjeta', r.total_tarjeta], ['Cobrado por transferencia', r.total_transferencia], ['Pérdidas por consumo no pagado', r.total_perdidas], ['Egresos', r.total_egresos], ['Abonos de encargos recibidos hoy (caja aparte)', r.total_abonos_recibidos], ['Abonos devueltos hoy', r.total_abonos_devueltos], ['Saldo en caja de encargos', r.saldo_caja_encargos]];
   const diferencia = contado === '' ? null : Number(contado) - r.efectivo_esperado;
   const cerrar = async (e: Event) => {
     e.preventDefault(); setError(null);
@@ -1941,6 +1948,7 @@ export function CuentaCaja({ cuenta, totalCuentas, config, setError }: { cuenta:
         <tr><td>Subtotal</td><td style="text-align:right">{dinero(t.subtotal, simbolo)}</td></tr>
         {t.descuento > 0 && <tr><td>Descuento</td><td style="text-align:right">-{dinero(t.descuento, simbolo)}</td></tr>}
         {Number(cuenta.propina) > 0 && <tr><td>Propina</td><td style="text-align:right">{dinero(cuenta.propina, simbolo)}</td></tr>}
+        {t.perdida > 0 && <tr style="color:var(--error)"><td>Pérdida (no pagado)</td><td style="text-align:right">{dinero(t.perdida, simbolo)}</td></tr>}
         <tr><td><b>Total</b></td><td style="text-align:right"><b>{dinero(t.total, simbolo)}</b></td></tr>
         {cuenta.pagos.map((p: any) => <tr key={p.id} style="color:var(--acento)"><td>Pagado · {METODOS.find(([k]) => k === p.metodo)?.[1]}{p.referencia ? ` ${p.referencia}` : ''}</td><td style="text-align:right">{dinero(p.monto, simbolo)}</td></tr>)}
       </tbody></table>
@@ -2003,8 +2011,8 @@ export function PedidoCaja({ pedidoId, config, onVolver, setError }: { pedidoId:
   const anularPedido = async () => {
     const motivo = prompt('Motivo para anular todo el pedido'); if (!motivo?.trim()) return;
     const pagado = pedido.cuentas.reduce((s: number, c: any) => s + c.totales.pagado, 0);
-    let pagos: 'devolver' | 'retener' | undefined;
-    if (pagado > 0) pagos = confirm(`Este pedido tiene ${dinero(pagado, simbolo)} pagados.\n\nAceptar = DEVOLVER el dinero (se registra un egreso de devolución).\nCancelar = RETENER lo pagado como venta parcial.`) ? 'devolver' : 'retener';
+    let pagos: 'devolver' | 'perdida' | undefined;
+    if (pagado > 0) pagos = confirm(`Este pedido tiene ${dinero(pagado, simbolo)} pagados.\n\nAceptar = DEVOLVER el dinero al cliente (se registra un egreso de devolución).\nCancelar = el cliente se fue sin pagar el resto: CERRAR CON PÉRDIDA (lo impago queda registrado como pérdida).`) ? 'devolver' : 'perdida';
     try { await api.post(`/api/pedidos/${pedidoId}/anular`, { motivo, pagos }); onVolver(); } catch (e: any) { setError(e.message); }
   };
   const descartarAviso = async (r: any) => { try { await api.post(`/api/rondas/${r.id}/aviso-visto`, { pantalla: 'caja' }); } catch {} };
