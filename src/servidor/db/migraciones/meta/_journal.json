@@ -15,6 +15,13 @@
       "when": 1789504279054,
       "tag": "0001_indices_parciales",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789504818559,
+      "tag": "0002_useful_sleeper",
+      "breakpoints": true
     }
   ]
 }

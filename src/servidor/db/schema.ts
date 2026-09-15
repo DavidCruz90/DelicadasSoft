@@ -1,9 +1,10 @@
 import { pgTable, pgEnum, uuid, text, integer, numeric, boolean, timestamp, date } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
 const tiempos = () => ({
   creado_en: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow(),
-  actualizado_en: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
+  actualizado_en: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 const monto = (nombre: string) => numeric(nombre, { precision: 10, scale: 2 });
 
@@ -103,7 +104,7 @@ export const encargo = pgTable('encargo', {
   notas: text('notas'),
   estado: estadoEncargo('estado').notNull().default('pendiente'),
   jornada_creacion_id: uuid('jornada_creacion_id').notNull().references(() => jornada.id),
-  pedido_id: uuid('pedido_id'),
+  pedido_id: uuid('pedido_id').references((): AnyPgColumn => pedido.id),
   entregado_en: timestamp('entregado_en', { withTimezone: true }),
   cancelado_en: timestamp('cancelado_en', { withTimezone: true }),
   motivo_cancelacion: text('motivo_cancelacion'),

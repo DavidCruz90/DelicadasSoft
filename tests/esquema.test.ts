@@ -1,4 +1,5 @@
 import { test, expect, beforeAll, afterAll } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { prepararBaseDePrueba } from './ayuda/db';
 import { configuracion, producto, categoria } from '../src/servidor/db/schema';
 
@@ -31,5 +32,16 @@ test('producto sin control de stock tiene stock_actual nulo', async () => {
 
 test('solo puede existir una jornada abierta', async () => {
   await ctx.sql`INSERT INTO jornada (fondo_inicial) VALUES (10)`;
-  await expect(ctx.sql`INSERT INTO jornada (fondo_inicial) VALUES (20)`).rejects.toThrow();
+  await expect(ctx.sql`INSERT INTO jornada (fondo_inicial) VALUES (20)`).rejects.toMatchObject({ code: '23505' });
+});
+
+test('actualizado_en se actualiza solo al hacer un update', async () => {
+  const [cat] = await ctx.db.insert(categoria).values({ nombre: 'Postres', orden: 2 }).returning();
+  await new Promise((resolver) => setTimeout(resolver, 10));
+  const [actualizada] = await ctx.db
+    .update(categoria)
+    .set({ nombre: 'Postres y panes' })
+    .where(eq(categoria.id, cat.id))
+    .returning();
+  expect(actualizada.actualizado_en.getTime()).toBeGreaterThan(actualizada.creado_en.getTime());
 });
