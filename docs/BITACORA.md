@@ -24,3 +24,6 @@
 1. Dave: "listo, sigue". Se tomó como luz verde para planificar la implementación.
 2. Verificado en esta Mac: Node 24.19, npm 11.17, Docker 29.4. Sin psql, pg_ctl ni brew. PostgreSQL de desarrollo y pruebas irá en Docker (`cafeteria-pg`, puerto 5433).
 3. Con `superpowers:writing-plans` se decidió dividir en 4 planes. Se escribió el plan 1 (Cimientos): proyecto, esquema completo de 16 tablas en Drizzle, migraciones, servidor Fastify con errores y SSE, API de configuración, meseros y catálogo con stock y fotos, web Preact + Vite servida por Fastify, pantalla de admin. Subido a `origin/main`.
+4. Dave eligió "escribe primero los planes 2, 3 y 4" antes de ejecutar. Se escribieron los tres con `superpowers:writing-plans`: plan 2 Operación (8 tareas), plan 3 Complementos (6 tareas), plan 4 Entrega (5 tareas). Total 26 tareas con código, pruebas, comando de verificación y commit cada una.
+5. Ajuste de diseño detectado al planificar y reflejado en la spec: cualquier cuenta vacía se puede eliminar mientras quede al menos una (antes la cuenta 1 no se podía eliminar). Pendiente reflejarlo en `docs/propuesta-nucleo-pos.html` al cerrar el plan 2.
+6. Todo subido a `origin/main`. Siguiente paso en `docs/ESTADO.md`: ejecutar el plan 1.

@@ -104,7 +104,7 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 **cuenta**
 - `pedido_id`, `numero` (1, 2, 3… dentro del pedido), `cliente_id` (nulo), `descuento_tipo` (enum: `ninguno`, `monto`, `porcentaje`), `descuento_valor`, `propina`, `estado` (enum: `abierta`, `cobrada`), `cobrada_en`.
 - Al crear un pedido se crea automáticamente la cuenta 1. Todos los ítems nacen asignados a ella. El mesero nunca ve cuentas.
-- Caja puede crear cuentas adicionales solo al momento de cobrar, y mover ítems entre cuentas abiertas. Una cuenta sin ítems se puede eliminar; la cuenta 1 no.
+- Caja puede crear cuentas adicionales solo al momento de cobrar, y mover ítems entre cuentas abiertas. Cualquier cuenta vacía se puede eliminar siempre que el pedido conserve al menos una cuenta (ajuste del 2026-09-15: si todos los ítems de la cuenta 1 se mueven a otra, la cuenta 1 vacía debe poder eliminarse para que la mesa se libere).
 - Cliente, descuento y propina viven en la cuenta, no en el pedido, para que cada persona tenga los suyos.
 
 **ronda**
@@ -207,7 +207,7 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 | `POST /pedidos/:id/items/:itemId/anular` | `{motivo}` |
 | `PATCH /pedidos/:id` | Notas |
 | `POST /pedidos/:id/cuentas` | Crear cuenta adicional (solo con jornada abierta y pedido abierto) |
-| `DELETE /cuentas/:id` | Eliminar cuenta vacía (no la cuenta 1) |
+| `DELETE /cuentas/:id` | Eliminar cuenta vacía (debe quedar al menos una cuenta) |
 | `POST /cuentas/:id/items` | Mover ítems a esta cuenta `{items:[{pedido_item_id, cantidad}]}`; si `cantidad` es menor a la del ítem, se divide la fila |
 | `PATCH /cuentas/:id` | Descuento, propina, cliente |
 | `POST /cuentas/:id/pagos` | `{id, metodo, monto, referencia}` |
@@ -286,7 +286,7 @@ Constancia de encargo: mismo formato, con número de encargo, fecha de entrega, 
 - **Concurrencia de stock**: transacción con `SELECT … FOR UPDATE` sobre el producto. Segundo pedido recibe 409 "Se acaba de agotar".
 - **Red caída en el cliente**: franja roja "Sin conexión"; botones de envío desactivados; ronda en curso persistida en `localStorage`; reconexión automática de SSE y recarga de estado.
 - **Reinicio de la PC de caja**: todo el estado está en PostgreSQL. El lanzador reabre y la jornada sigue abierta.
-- **Validaciones** (409 con mensaje): sin jornada abierta; pago que excede el total de la cuenta; abono que excede el saldo del encargo; entregar o cancelar un encargo que no está pendiente; ítem libre con la opción desactivada o con nombre vacío; cierre con pedidos abiertos; descuento mayor al subtotal; modificar cuenta o pedido cobrados; mover ítems desde o hacia una cuenta cobrada; eliminar la cuenta 1 o una cuenta con ítems; stock negativo en ajuste; mesa fuera de rango; mesero inactivo; producto inactivo o agotado.
+- **Validaciones** (409 con mensaje): sin jornada abierta; pago que excede el total de la cuenta; abono que excede el saldo del encargo; entregar o cancelar un encargo que no está pendiente; ítem libre con la opción desactivada o con nombre vacío; cierre con pedidos abiertos; descuento mayor al subtotal; modificar cuenta o pedido cobrados; mover ítems desde o hacia una cuenta cobrada; eliminar una cuenta con ítems o la última cuenta del pedido; stock negativo en ajuste; mesa fuera de rango; mesero inactivo; producto inactivo o agotado.
 - **Errores inesperados**: 500 con mensaje genérico en pantalla y detalle en `logs/servidor.log` (rotación diaria, 30 días).
 - **PostgreSQL no arranca**: el lanzador muestra el error y ofrece "Ver registro" y "Reintentar".
 
