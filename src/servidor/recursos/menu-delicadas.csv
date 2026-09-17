@@ -1,0 +1,29 @@
+﻿categoria;producto;precio;controla_stock;stock_inicial;descripcion;orden_categoria;orden_producto
+Tradicionales;Tortillas de maíz con queso (5 u);1,25;si;0;;1;1
+Tradicionales;Quimbolitos;0,60;si;0;;1;2
+Tradicionales;Humitas;0,80;si;0;;1;3
+Tradicionales;Tamales de gallina;1,75;si;0;;1;4
+Tradicionales;Tortilla de verde (queso mozarella);1,00;no;;;1;5
+Tradicionales;Tortilla de yuca;1,00;no;;;1;6
+Tradicionales;Pastel de maduro;1,00;no;;;1;7
+Chochos y ceviches;Chochos;1,25;no;;;2;1
+Chochos y ceviches;Ceviche de chochos familiar con sardina (4 porciones);8,00;no;;;2;2
+Chochos y ceviches;Ceviche de chochos familiar con atún (4 porciones);9,00;no;;;2;3
+Chochos y ceviches;Ceviche de chochos personal;3,00;no;;;2;4
+Tostadas y sanduches;Tostada de queso;1,00;no;;;3;1
+Tostadas y sanduches;Tostada mixta (jamón, mortadela y queso);2,00;no;;;3;2
+Tostadas y sanduches;Sanduche de hornado;2,00;no;;;3;3
+Tostadas y sanduches;Sanduche de pollo;2,00;no;;;3;4
+Tostadas y sanduches;Choripán;2,00;no;;;3;5
+Tostadas y sanduches;Sanduche de jamón, mortadela o mixto;2,00;no;;Indicar en la nota: jamón, mortadela o mixto;3;6
+Bebidas;Ponche de chicha;1,50;no;;;4;1
+Bebidas;Capuchino;1,50;no;;;4;2
+Bebidas;Café o aromáticas;0,50;no;;Indicar en la nota: café o aromática;4;3
+Bebidas;Leche;0,80;no;;;4;4
+Bebidas;Chocolate ambateño;1,50;no;;;4;5
+Bebidas;Chicha (jarra 1 L);1,60;no;;;4;6
+Bebidas;Chicha con cola (jarra 1 L);1,80;no;;;4;7
+Bebidas;Vaso de chicha;0,70;no;;;4;8
+Bebidas;Jugos;1,00;no;;Frutas: mora, frutilla, tomate, guanábana, naranjilla, naranja. Indicar la fruta en la nota.;4;9
+Bebidas;Batidos;1,50;no;;Frutas: mora, frutilla, tomate, guanábana, naranjilla, naranja. Indicar la fruta en la nota.;4;10
+Bebidas;Gaseosas / minerales;0,80;no;;;4;11

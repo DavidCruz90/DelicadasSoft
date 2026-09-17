@@ -252,6 +252,7 @@ td code{white-space:nowrap}
     <div><div class="k">Impuestos</div><div class="v">Precios finales, sin desglose de IVA. El ticket no menciona impuestos.</div></div>
     <div><div class="k">Encargos</div><div class="v">Pedidos para días posteriores con abonos guardados aparte. La venta y el ticket se generan el día de entrega.</div></div>
     <div><div class="k">Ítem libre</div><div class="v">Mesero y caja agregan un ítem con texto y valor libres. Admin puede desactivarlo.</div></div>
+    <div><div class="k">Carga de menú</div><div class="v">Desde CSV con vista previa. Actualiza lo que existe, lista las filas con error y nunca cambia el stock actual.</div></div>
     <div><div class="k">Cliente</div><div class="v">Solo el nombre es obligatorio. Correo, cédula y teléfono se exigen solo al facturar.</div></div>
     <div><div class="k">Base de datos</div><div class="v">PostgreSQL 16 desde el inicio, portátil dentro de la carpeta.</div></div>
     <div><div class="k">Tecnología</div><div class="v">Node.js 22 + TypeScript, Fastify, Drizzle, Preact.</div></div>
@@ -422,7 +423,8 @@ saldo     = total − pagado</div>
         <li>Menú con categorías, productos, fotos y stock. Editar stock pide motivo.</li>
         <li>Meseros, mesas, clientes, configuración (incluye permitir ítems libres).</li>
         <li>Reportes por jornada: cierre de caja con abonos recibidos y saldo de caja de encargos, ventas por producto, stock restante, egresos, encargos. Exportar a CSV.</li>
-        <li>Respaldos, restauración, menú de ejemplo y descarga del log.</li>
+        <li>Importar menú desde un CSV hecho en Excel: vista previa, confirmar, plantilla para otras cafeterías y menú real de Delicadas precargado.</li>
+        <li>Respaldos, restauración y descarga del log.</li>
       </ul>
     </div>
   </div>
@@ -478,7 +480,7 @@ CI 0912345678</div>
     <li><b>Integración</b>: cada ruta de la API contra una base PostgreSQL de prueba, incluyendo dos pedidos simultáneos del último ítem.</li>
     <li><b>Extremo a extremo</b>: abrir caja → mesero pide con un ítem libre → caja agrega → cocina marca listo → división en dos cuentas, una cobrada en efectivo y transferencia → encargo con abono → egreso → cierre sin contar el abono → al día siguiente entregar el encargo, cobrar el saldo y cerrar contando el abono → reportes correctos.</li>
   </ul>
-  <p>Todas corren con un solo comando. La construcción del ejecutable se prueba en Windows antes de entregar. Además, admin trae “Cargar menú de ejemplo” para probar el primer día sin cargar el menú real.</p>
+  <p>Todas corren con un solo comando. La construcción del ejecutable se prueba en Windows antes de entregar. Además, admin trae “Cargar menú de Delicadas”, con los 28 productos de la carta real, y la carga por CSV para actualizar precios o implementar el sistema en otra cafetería.</p>
 </section>
 
 <section id="roadmap">

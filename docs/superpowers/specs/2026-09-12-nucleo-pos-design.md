@@ -1,6 +1,6 @@
 # Núcleo POS Cafetería — Diseño
 
-Fecha: 2026-09-12 (cuenta dividida 2026-09-13; encargos, ítem libre, cliente mínimo y ticket sin leyenda 2026-09-14)
+Fecha: 2026-09-12 (cuenta dividida 2026-09-13; encargos, ítem libre, cliente mínimo y ticket sin leyenda 2026-09-14; carga masiva de menú por CSV y menú real de Delicadas 2026-09-17)
 Estado: aprobado en conversación, pendiente de revisión escrita
 Módulo: 1 de 4 (siguen: Menú digital, Facturación electrónica SRI, Wallet de fidelización)
 
@@ -25,6 +25,7 @@ Sistema para operar una cafetería en red local: tomar pedidos por mesa, ampliar
 | Encargos | Pedidos para días posteriores con abonos. Solo caja los crea. Los abonos van a una "caja de encargos" separada y no cuentan como venta ni en el arqueo. La venta y el ticket se generan el día de entrega. No tocan stock. |
 | Ítem libre | Mesero y caja pueden agregar un ítem con texto y valor libres. Sin stock. Admin puede desactivarlo. |
 | Cliente | Solo el nombre es obligatorio. Identificación, correo, teléfono y dirección son opcionales; Facturación SRI los exigirá al facturar. |
+| Carga masiva de menú | Admin carga o actualiza el menú desde un archivo CSV con vista previa y confirmación. Si el producto existe, se actualiza. Las filas con error no se cargan y se listan; las válidas sí. El stock existente nunca se cambia por CSV. Sirve para implementar el sistema en otras cafeterías. El menú ficticio de ejemplo se reemplaza por el menú real de Delicadas (decisiones de Dave, 2026-09-17). |
 | Moneda | Dólares, símbolo configurable. |
 | Base de datos | PostgreSQL 16 desde el inicio, portátil dentro de la carpeta del programa. |
 | Tecnología | Node.js 22 + TypeScript, Fastify, Drizzle ORM, Preact. |
@@ -172,6 +173,39 @@ saldo      = total − pagado − perdida
 
 Redondeo a 2 decimales en cada paso. `descuento` nunca puede superar `subtotal`. El total del pedido, que se muestra en la cuadrícula de mesas, es la suma de los totales de sus cuentas.
 
+### 4.6 Carga masiva del menú por CSV
+
+Formato completo y ejemplos para usuarios en `docs/menu/formato-csv.md`. Archivos: plantilla `src/servidor/recursos/plantilla-menu.csv` y menú real `src/servidor/recursos/menu-delicadas.csv`.
+
+**Archivo.** CSV en UTF-8, con o sin marca BOM; si no es UTF-8 válido se lee como Windows-1252. Separador `;`, o `,` si la primera fila tiene más comas que puntos y coma. Comillas dobles según RFC 4180. Filas totalmente vacías se ignoran. Máximo 1 MB y 2000 filas de datos. El número de fila que se informa es el de la línea del archivo donde empieza el registro, contando el encabezado como fila 1, que coincide con el número de fila de Excel.
+
+**Encabezado.** Nombres normalizados: sin distinguir mayúsculas ni tildes, espacios como guion bajo. Obligatorias: `categoria`, `producto`, `precio`. Opcionales: `controla_stock`, `stock_inicial`, `descripcion`, `orden_categoria`, `orden_producto`. Falta una obligatoria → 400 "Faltan columnas obligatorias: …". Columna desconocida → 400 "Columna desconocida: …". Columna repetida → 400 "Columna repetida: …". Sin filas de datos → 400 "El archivo no tiene filas de productos". Estos errores rechazan el archivo entero.
+
+**Validación por fila.** Cada error queda en esa fila y no impide las demás.
+- `categoria`: no vacía, hasta 80 caracteres. `producto`: no vacío, hasta 120.
+- `precio`: se quita un `$` inicial; si trae `,` y `.` a la vez es error; la `,` se toma como separador decimal; luego las reglas de dinero de todo el sistema: 0 a 99 999 999.99 con hasta 2 decimales.
+- `controla_stock`: `si`, `sí` o `no`, sin distinguir mayúsculas; vacío es `no`.
+- `stock_inicial`: vacío o entero de 0 a 1 000 000. Vacío con control de stock es 0.
+- `descripcion`: hasta 300 caracteres. `orden_categoria` y `orden_producto`: vacíos o enteros de 0 a 1 000 000.
+- Una misma categoría con dos `orden_categoria` distintos no vacíos: error en la fila posterior.
+- Dos filas con la misma categoría y producto: error en la segunda, indicando la fila de la primera.
+
+**Identificación.** Categoría y producto se comparan sin distinguir mayúsculas y colapsando espacios; las tildes sí cuentan (misma decisión que los nombres de mesero). Si en la base hay más de una categoría, o más de un producto dentro de la categoría, con el mismo nombre normalizado, la fila es error y pide corregirlo en Admin.
+
+**Acción por fila.**
+- `crear`: el producto no existe (la categoría se crea si tampoco existe).
+- `actualizar`: existe y cambia algo: precio, descripción (solo si la celda no está vacía), orden, control de stock, o reactivar el producto o su categoría.
+- `sin_cambios`: existe y todo coincide.
+- `error`: la fila no pasa la validación.
+
+**Stock.** Al crear con control de stock, o al activar el control en un producto existente: `stock_actual = stock_inicial` y movimiento `ajuste_manual` con motivo "Stock inicial" y `cantidad = stock_inicial`. Al desactivar el control: movimiento `cantidad = −stock_actual`, `stock_resultante 0`, motivo "Control de stock desactivado", y `stock_actual` nulo. Si el producto ya controla stock, el stock no cambia; un `stock_inicial` distinto genera un aviso en la vista previa. Mismos motivos que usa el catálogo. `jornada_id` del movimiento: la jornada abierta o nulo.
+
+**Vista previa y confirmación.** La vista previa no escribe nada y devuelve, por fila: número de fila, acción, categoría, producto, precio normalizado, lista de cambios, avisos y errores; y un resumen con conteos por acción y categorías nuevas. Confirmar vuelve a subir el mismo archivo, se analiza de nuevo, y todas las filas `crear` y `actualizar` se aplican en una sola transacción; las filas con error se omiten y se devuelven listadas. Lo que no está en el archivo no se toca. La carga se permite con caja abierta o cerrada: los precios de pedidos ya tomados no cambian porque se copian al ítem.
+
+**Menú de Delicadas.** Botón que aplica `menu-delicadas.csv` con las mismas reglas. Es idempotente: una segunda carga da todo `sin_cambios`.
+
+**Exportar.** Descarga el menú activo en este mismo formato, con `;`, coma decimal, BOM y fin de línea CRLF, ordenado por orden y nombre de categoría y de producto. `stock_inicial` exporta el stock actual. Reimportar el archivo exportado da todo `sin_cambios`.
+
 ## 5. Reglas de negocio
 
 1. **Nada sin jornada abierta.** Crear pedidos, enviar rondas, agregar ítems, cobrar, registrar egresos y ajustar stock desde caja requieren jornada abierta. Sin ella, mesero y cocina muestran "Caja cerrada". Admin permite catálogo, mesas, meseros, clientes, configuración y respaldos.
@@ -196,6 +230,7 @@ Redondeo a 2 decimales en cada paso. `descuento` nunca puede superar `subtotal`.
 17. **Los abonos no son venta.** Se registran el día que se reciben pero no suman a ventas ni al arqueo de ese día. La venta se registra completa el día de entrega, cuando el encargo se convierte en pedido y los abonos se aplican como pagos.
 18. **Los encargos no tocan stock.** Ni al crear ni al entregar. Se preparan aparte del menú del día.
 19. **Cancelar un encargo con abono** obliga a caja a indicar cuánto se devuelve (de 0 a lo abonado); el resto se retiene como venta, según 4.4.
+20. **Carga masiva de menú** según 4.6: vista previa sin escribir; al confirmar, filas válidas en una sola transacción y filas con error omitidas y listadas; el stock existente nunca cambia por CSV; activar o desactivar el control de stock por CSV siempre deja movimiento.
 
 ## 6. API
 
@@ -239,7 +274,11 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 | `GET/POST/PATCH /admin/meseros` | Lista de meseros |
 | `GET/PATCH /admin/configuracion` | Configuración |
 | `POST /admin/respaldos`, `GET /admin/respaldos`, `POST /admin/respaldos/restaurar` | Respaldos |
-| `POST /admin/datos-ejemplo`, `POST /admin/datos-ejemplo/borrar` | Menú de ejemplo |
+| `POST /admin/menu/importar/previsualizar` | Multipart, campo `archivo`. Analiza el CSV y devuelve filas y resumen sin escribir |
+| `POST /admin/menu/importar/confirmar` | Multipart, campo `archivo`. Aplica las filas válidas y devuelve el mismo análisis con `aplicado: true` |
+| `POST /admin/menu/cargar-delicadas` | Aplica `recursos/menu-delicadas.csv` |
+| `GET /admin/menu/plantilla.csv` | Descarga la plantilla |
+| `GET /admin/menu/exportar.csv` | Descarga el menú activo en formato CSV |
 | `GET /admin/logs` | Descarga `servidor.log` |
 
 ## 7. Pantallas
@@ -280,7 +319,7 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 - Configuración: nombre del local, símbolo, propina sugerida, umbral de stock, cocina activa, sonido, permitir ítems libres.
 - Reportes: por jornada (actual e historial): cierre de caja (incluye abonos recibidos, devueltos, saldo de caja de encargos y pérdidas por consumo no pagado), ventas por producto (con fila "Ítems libres"), stock restante, egresos, encargos entregados y cancelados. Exportar cada reporte a CSV.
 - Respaldos: crear, listar, restaurar. Descargar log.
-- Datos de ejemplo: cargar y borrar.
+- Importar menú: "Descargar plantilla", "Descargar menú actual", "Cargar menú de Delicadas", elegir archivo y "Ver vista previa" con tabla por fila (acción, cambios, avisos, errores) y "Confirmar carga"; al terminar, resumen de creados, actualizados y filas con error no cargadas.
 
 ### 7.5 Ticket
 Un ticket por cuenta. HTML con CSS `@media print` para 80 mm y hoja A4. Contenido: nombre del local, número de pedido y de cuenta si la mesa se dividió (por ejemplo "Pedido #37 · Cuenta 2 de 2"), mesa o "Para llevar" o "Encargo #N", mesero si lo hay, fecha y hora, ítems de esa cuenta (cantidad, nombre, precio, subtotal), ítems anulados omitidos, subtotal, descuento, propina, total, pagos por método (los abonos con su fecha), cliente (nombre, e identificación si la registró). Sin leyenda de impuestos: el ticket no menciona impuestos. Se abre con `window.print()`.

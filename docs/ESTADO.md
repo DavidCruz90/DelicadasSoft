@@ -20,6 +20,12 @@ Actualizado: 2026-09-17 (ronda de arreglo 1 de la Tarea 5)
 - **`actualizado_en` se actualiza solo** vía `$onUpdate` de Drizzle, que cubre las escrituras hechas con Drizzle pero no las hechas con SQL crudo. Si en algún plan se escribe con SQL crudo, hay que poner el campo a mano o añadir un disparador.
 - **Faltan índices sobre claves foráneas de alto tráfico** (`pedido_item.ronda_id`, `pago.cuenta_id`, `abono.encargo_id`, `encargo_item.encargo_id`). Irrelevante en una base de este tamaño; revisar solo si aparece lentitud.
 
+## Menú real (2026-09-17)
+- Carta de Delicadas transcrita: `docs/menu/menu-delicadas.md`. En formato del sistema: `src/servidor/recursos/menu-delicadas.csv` (28 productos, 4 categorías).
+- Decisiones de Dave: categorías Tradicionales, Chochos y ceviches, Tostadas y sanduches, Bebidas; stock contado en tortillas de maíz con queso, quimbolitos, humitas y tamales de gallina; ceviche familiar con sardina y con atún como dos productos; el menú ficticio de ejemplo se reemplaza por el real.
+- Nueva función aprobada: carga masiva del menú por CSV, para esta y otras cafeterías. Si el producto existe se actualiza; filas con error no se cargan y se listan; vista previa antes de confirmar; el stock existente nunca cambia por CSV. Spec 4.6 y regla 20; formato para usuarios en `docs/menu/formato-csv.md`; plantilla en `src/servidor/recursos/plantilla-menu.csv`. Se construye en el plan 3, tareas 6 y 7.
+- Nombre del local confirmado por la carta: Delicadas.
+
 ## Pendientes de decisión (preguntar a Dave o al propietario)
 1. Aprobación del propietario sobre la propuesta.
 2. Referencia opcional por pago: mantener o quitar.

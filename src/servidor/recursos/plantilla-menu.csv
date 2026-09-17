@@ -1,0 +1,4 @@
+﻿categoria;producto;precio;controla_stock;stock_inicial;descripcion;orden_categoria;orden_producto
+Bebidas;Café americano;1,50;no;;;1;1
+Bebidas;Jugo natural;2,00;no;;Indicar la fruta en la nota;1;2
+Panadería;Pan de yuca;0,50;si;30;;2;1

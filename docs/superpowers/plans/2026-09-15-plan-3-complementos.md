@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Completar lo que la operación diaria necesita además de vender: pantalla de cocina opcional, egresos, encargos con abonos y caja de encargos, reportes por jornada con exportación CSV, clientes en admin y menú de ejemplo.
+**Goal:** Completar lo que la operación diaria necesita además de vender: pantalla de cocina opcional, egresos, encargos con abonos y caja de encargos, reportes por jornada con exportación CSV, clientes en admin, y carga masiva del menú por CSV con el menú real de Delicadas precargado.
 
 **Architecture:** Mismos patrones de los planes 1 y 2: un módulo por dominio en `src/servidor/modulos/` con sus rutas, pruebas de integración con `app.inject()`, y componentes Preact por pantalla. Los encargos reutilizan `enviarRonda` y `registrarPago` al entregar, de modo que el cobro, la división y el ticket funcionan sin código nuevo.
 
 **Tech Stack:** el de los planes 1 y 2. Sin dependencias nuevas.
 
-**Spec:** `docs/superpowers/specs/2026-09-12-nucleo-pos-design.md` secciones 4.4 (encargos), 5 reglas 6, 12, 13, 15 a 19, 6 (rutas de cocina, egresos, encargos, reportes, datos de ejemplo), 7.2, 7.3 (egresos y encargos), 7.4 (clientes, reportes, datos de ejemplo), 7.5 (constancia). **Requiere planes 1 y 2 terminados.**
+**Spec:** `docs/superpowers/specs/2026-09-12-nucleo-pos-design.md` secciones 4.4 (encargos), 5 reglas 6, 12, 13, 15 a 19, 4.6 (carga masiva de menú por CSV), 5 regla 20, 6 (rutas de cocina, egresos, encargos, reportes, importar menú), 7.2, 7.3 (egresos y encargos), 7.4 (clientes, reportes, importar menú), 7.5 (constancia). Formato de usuario del CSV: `docs/menu/formato-csv.md`. **Requiere planes 1 y 2 terminados.**
 
 **Modelos y skills:** no hay modelo por defecto. Cada tarea indica abajo su modelo ejecutor, su skill, su revisor y su motivo. Resumen de este plan:
 
@@ -19,7 +19,8 @@
 | Task 3 | `claude-fable-5-1` | `superpowers:test-driven-development` | `claude-fable-5-1` |
 | Task 4 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
 | Task 5 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
-| Task 6 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 6 | `claude-fable-5-1` | `superpowers:test-driven-development` | `claude-fable-5-1` |
+| Task 7 | `claude-sonnet-5` | `superpowers:test-driven-development` | `claude-fable-5-1` |
 
 **Revisión de cada tarea:** el revisor usa `superpowers:requesting-code-review` con modelo `claude-fable-5-1`: primero revisa contra la spec (¿hace lo que el plan pide, ni más ni menos?), luego calidad del código. Si hay observaciones, el ejecutor las atiende con `superpowers:receiving-code-review` y se vuelve a revisar. La tarea solo se marca terminada cuando el revisor aprueba y `superpowers:verification-before-completion` confirma la salida del comando de verificación.
 
@@ -36,15 +37,17 @@ src/servidor/modulos/cocina.ts        listarRondasCocina, marcarRondaLista, ruta
 src/servidor/modulos/egresos.ts       listarEgresos, crearEgreso, rutasEgresos
 src/servidor/modulos/encargos.ts      crear, editar, abonar, entregar, cancelar, comprobante, rutasEncargos
 src/servidor/modulos/reportes.ts      reporteJornada, aCsv, rutasReportes
-src/servidor/modulos/ejemplo.ts       cargarDatosEjemplo, borrarDatosEjemplo, rutasEjemplo
+src/servidor/modulos/importar-menu.ts leerCsv, analizarMenu, aplicarMenu, exportarMenuCsv, rutasImportarMenu
+src/servidor/recursos/               menu-delicadas.csv y plantilla-menu.csv (ya existen en el repositorio)
 src/web/cocina/AppCocina.tsx          rondas pendientes, botón Listo, barra de stock, sonido
 src/web/caja/Egresos.tsx              lista y formulario
 src/web/caja/Encargos.tsx             lista, nuevo, detalle con abonar/entregar/cancelar
 src/web/caja/AppCaja.tsx              botones Egresos y Encargos
 src/web/admin/Clientes.tsx            listado, búsqueda, edición
 src/web/admin/Reportes.tsx            jornada actual e historial, exportar CSV
-src/web/admin/AppAdmin.tsx            pestañas Clientes, Reportes, Datos de ejemplo
-tests/cocina.test.ts, egresos.test.ts, encargos.test.ts, reportes.test.ts, ejemplo.test.ts
+src/web/admin/ImportarMenu.tsx        plantilla, menú actual, menú de Delicadas, vista previa y confirmar
+src/web/admin/AppAdmin.tsx            pestañas Clientes, Reportes, Importar menú
+tests/cocina.test.ts, egresos.test.ts, encargos.test.ts, reportes.test.ts, importar-menu.test.ts
 ```
 
 ---
@@ -1179,131 +1182,731 @@ git add -A && git commit -m "Reportes por jornada con CSV y gestión de clientes
 
 ---
 
-### Task 6: Datos de ejemplo
-**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el código, las pruebas y el comando de verificación completos; la tarea es ejecutarlos fielmente.
+### Task 6: Carga masiva del menú por CSV (servidor)
+
+**Modelo ejecutor:** `claude-fable-5-1`. **Motivo:** la tarea escribe precios y movimientos de stock en una sola transacción y tiene reglas de identificación y de stock que deben coincidir exactamente con las del catálogo; aunque el plan trae el código completo, es trabajo con dinero y stock, igual que la Task 3 (encargos).
 **Skill del ejecutor:** `superpowers:test-driven-development`. **Al terminar:** `superpowers:verification-before-completion`.
 **Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
 
+**Contexto:** decidido con Dave el 2026-09-17. Reemplaza la antigua Task 6 "Datos de ejemplo", que cargaba un menú ficticio: ahora el menú inicial es el real de Delicadas y cualquier cafetería puede cargar el suyo desde un CSV. Spec sección 4.6 y regla 20. Formato para usuarios: `docs/menu/formato-csv.md`.
 
 **Files:**
-- Create: `src/servidor/modulos/ejemplo.ts`, `tests/ejemplo.test.ts`
-- Modify: `src/servidor/app.ts`, `src/web/admin/AppAdmin.tsx` (pestaña "Datos de ejemplo")
+- Ya existen, no se modifican: `src/servidor/recursos/menu-delicadas.csv` (28 productos, 4 categorías), `src/servidor/recursos/plantilla-menu.csv` (encabezado y 3 filas de ejemplo).
+- Create: `src/servidor/modulos/importar-menu.ts`, `tests/importar-menu.test.ts`
+- Modify: `src/servidor/app.ts` (registrar `rutasImportarMenu(app)` después de `rutasCatalogo(app)`)
 
 **Interfaces:**
-- Produces: `cargarDatosEjemplo(db)` → crea 3 categorías (Cafés, Sandwiches, Postres), 8 productos con nombre que empieza por `[Ejemplo] `, 2 meseros `[Ejemplo] Carlos` y `[Ejemplo] Ana`; idempotente (si ya existen, no duplica). `borrarDatosEjemplo(db)` → 409 `Hay caja abierta; cierra la caja antes de borrar los datos de ejemplo` si hay jornada abierta; desactiva (no borra) productos, categorías y meseros `[Ejemplo]` que tengan pedidos asociados, y borra los que no. Rutas: `POST /api/admin/datos-ejemplo`, `POST /api/admin/datos-ejemplo/borrar`. Emiten `catalogo` y `config`.
+- Consumes (planes 1 y 2, verificar nombres reales en el código antes de empezar): `Db`; tablas `categoria`, `producto`, `movimientoStock`, `jornada`; `ErrorValidacion`, `exigirMonto(valor: unknown, mensaje: string): string` de `src/servidor/errores.ts`; `app.bus.emitir`; `crearAppDePrueba()` → `{ app, db, sql }`. Motivos de movimiento que usa el catálogo desde la ronda de arreglo de la Task 5 del plan 1: `"Stock inicial"` y `"Control de stock desactivado"`, origen `ajuste_manual`. Comprobar con `grep -n "Stock inicial\|Control de stock desactivado" src/servidor/modulos/catalogo.ts` que siguen siendo esos textos; si difieren, usar los del código y avisar en el reporte.
+- Produces:
+  - `COLUMNAS: readonly string[]` = `['categoria','producto','precio','controla_stock','stock_inicial','descripcion','orden_categoria','orden_producto']`.
+  - `leerCsv(bytes: Buffer): { separador: ';' | ','; encabezado: string[]; filas: { numero: number; celdas: Record<string, string> }[] }`.
+  - `type AccionFila = 'crear' | 'actualizar' | 'sin_cambios' | 'error'`.
+  - `type FilaAnalizada = { fila: number; accion: AccionFila; categoria: string; producto: string; precio: string | null; controla_stock: boolean; stock_inicial: number | null; descripcion: string | null; orden_categoria: number | null; orden_producto: number | null; cambios: string[]; avisos: string[]; errores: string[]; categoria_id: string | null; producto_id: string | null }`.
+  - `type Analisis = { filas: FilaAnalizada[]; resumen: { crear: number; actualizar: number; sin_cambios: number; error: number; categorias_nuevas: string[] } }`.
+  - `analizarMenu(db: Db, bytes: Buffer): Promise<Analisis>` (no escribe).
+  - `aplicarMenu(db: Db, bytes: Buffer): Promise<Analisis & { aplicado: true; stock_cambiado: { producto_id: string; stock_actual: number | null }[] }>`.
+  - `exportarMenuCsv(db: Db): Promise<string>`.
+  - `rutasImportarMenu(app)`: `POST /api/admin/menu/importar/previsualizar`, `POST /api/admin/menu/importar/confirmar` (ambas multipart, campo `archivo`), `POST /api/admin/menu/cargar-delicadas`, `GET /api/admin/menu/plantilla.csv`, `GET /api/admin/menu/exportar.csv`.
+- Eventos: al confirmar o cargar Delicadas con al menos una fila aplicada, `catalogo`; y `stock` con `{ producto_id, stock_actual }` por cada producto cuyo stock cambió.
 
-- [ ] **Step 1: Escribir la prueba**
+- [ ] **Step 1: Escribir las pruebas**
 
-`tests/ejemplo.test.ts`:
+`tests/importar-menu.test.ts`:
 ```ts
-import { test, expect, beforeAll, afterAll } from 'vitest';
+import { test, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { crearAppDePrueba } from './ayuda/app';
+import { leerCsv } from '../src/servidor/modulos/importar-menu';
 
 let ctx: Awaited<ReturnType<typeof crearAppDePrueba>>;
 beforeAll(async () => { ctx = await crearAppDePrueba(); });
 afterAll(async () => { await ctx.app.close(); await ctx.sql.end(); });
+beforeEach(async () => { await ctx.sql`TRUNCATE movimiento_stock, producto, categoria RESTART IDENTITY CASCADE`; });
 
-test('cargar es idempotente y borrar limpia', async () => {
-  const a = await ctx.app.inject({ method: 'POST', url: '/api/admin/datos-ejemplo' });
-  expect(a.statusCode).toBe(200);
-  const b = await ctx.app.inject({ method: 'POST', url: '/api/admin/datos-ejemplo' });
-  expect(b.statusCode).toBe(200);
-  const cat = (await ctx.app.inject({ method: 'GET', url: '/api/catalogo' })).json();
-  expect(cat.categorias).toHaveLength(3);
-  expect(cat.categorias.flatMap((c: any) => c.productos)).toHaveLength(8);
-  expect((await ctx.app.inject({ method: 'GET', url: '/api/estado' })).json().meseros).toHaveLength(2);
-  await ctx.app.inject({ method: 'POST', url: '/api/jornadas/abrir', payload: { fondo_inicial: 0 } });
-  const conCaja = await ctx.app.inject({ method: 'POST', url: '/api/admin/datos-ejemplo/borrar' });
-  expect(conCaja.statusCode).toBe(409);
-  await ctx.app.inject({ method: 'POST', url: '/api/jornadas/cerrar', payload: { efectivo_contado: 0 } });
-  const borrar = await ctx.app.inject({ method: 'POST', url: '/api/admin/datos-ejemplo/borrar' });
-  expect(borrar.statusCode).toBe(200);
-  expect((await ctx.app.inject({ method: 'GET', url: '/api/catalogo' })).json().categorias).toHaveLength(0);
+const ENC = 'categoria;producto;precio;controla_stock;stock_inicial;descripcion;orden_categoria;orden_producto';
+
+function multipart(campo: string, nombre: string, contenido: Buffer | string) {
+  const limite = '----limiteCsv';
+  const payload = Buffer.concat([
+    Buffer.from(`--${limite}\r\nContent-Disposition: form-data; name="${campo}"; filename="${nombre}"\r\nContent-Type: text/csv\r\n\r\n`),
+    Buffer.isBuffer(contenido) ? contenido : Buffer.from(contenido, 'utf8'),
+    Buffer.from(`\r\n--${limite}--\r\n`),
+  ]);
+  return { headers: { 'content-type': `multipart/form-data; boundary=${limite}` }, payload };
+}
+const previsualizar = (csv: Buffer | string) => ctx.app.inject({ method: 'POST', url: '/api/admin/menu/importar/previsualizar', ...multipart('archivo', 'menu.csv', csv) });
+const confirmar = (csv: Buffer | string) => ctx.app.inject({ method: 'POST', url: '/api/admin/menu/importar/confirmar', ...multipart('archivo', 'menu.csv', csv) });
+
+test('leerCsv: BOM, punto y coma, comillas, CRLF, filas vacías y número de fila', () => {
+  const texto = '﻿categoria;producto;precio\r\nBebidas;"Café; con ""leche""";1,50\r\n;;\r\n\r\nPostres;"Torta\nde queso";2\r\n';
+  const r = leerCsv(Buffer.from(texto, 'utf8'));
+  expect(r.separador).toBe(';');
+  expect(r.encabezado).toEqual(['categoria', 'producto', 'precio']);
+  expect(r.filas).toEqual([
+    { numero: 2, celdas: { categoria: 'Bebidas', producto: 'Café; con "leche"', precio: '1,50' } },
+    { numero: 5, celdas: { categoria: 'Postres', producto: 'Torta\nde queso', precio: '2' } },
+  ]);
+});
+
+test('leerCsv: coma como separador, Windows-1252 y encabezados con tildes y espacios', () => {
+  const texto = 'Categoría,Producto,Precio,Controla stock\nSanduches,Choripán,2.00,no\n';
+  const r = leerCsv(Buffer.from(texto, 'latin1'));
+  expect(r.separador).toBe(',');
+  expect(r.encabezado).toEqual(['categoria', 'producto', 'precio', 'controla_stock']);
+  expect(r.filas[0].celdas.producto).toBe('Choripán');
+});
+
+test('previsualizar sobre base vacía clasifica y no escribe nada', async () => {
+  const csv = [ENC,
+    'Bebidas;Café;0,50;no;;;1;1',
+    'Tradicionales;Quimbolitos;0,60;si;25;;2;1',
+    'Tradicionales;Humitas;0.80;si;;Con queso;2;2',
+  ].join('\n');
+  const r = await previsualizar(csv);
+  expect(r.statusCode).toBe(200);
+  const a = r.json();
+  expect(a.resumen).toMatchObject({ crear: 3, actualizar: 0, sin_cambios: 0, error: 0 });
+  expect(a.resumen.categorias_nuevas).toEqual(['Bebidas', 'Tradicionales']);
+  expect(a.filas.map((f: any) => [f.fila, f.accion, f.precio])).toEqual([[2, 'crear', '0.50'], [3, 'crear', '0.60'], [4, 'crear', '0.80']]);
+  const [{ n }] = await ctx.sql`SELECT count(*)::int AS n FROM producto`;
+  expect(n).toBe(0);
+});
+
+test('errores por fila con número de fila y mensaje, sin afectar a las filas válidas', async () => {
+  const csv = [ENC,
+    'Bebidas;Café;0,50;no;;;;',
+    'Bebidas;Té;abc;no;;;;',
+    'Bebidas;Jugo;4,555;no;;;;',
+    'Bebidas;Agua;1,00;tal vez;;;;',
+    'Bebidas;;1,00;no;;;;',
+    'bebidas;CAFÉ;0,60;no;;;;',
+    'Bebidas;Leche;0,80;si;-3;;;',
+    'Bebidas;Chicha;1.600,00;no;;;;',
+  ].join('\n');
+  const a = (await previsualizar(csv)).json();
+  const porFila = Object.fromEntries(a.filas.map((f: any) => [f.fila, f]));
+  expect(porFila[2].accion).toBe('crear');
+  for (const n of [3, 4, 5, 6, 7, 8, 9]) expect(porFila[n].accion).toBe('error');
+  expect(porFila[3].errores[0]).toBe('El precio debe ser un monto entre 0 y 99999999,99 con hasta 2 decimales');
+  expect(porFila[4].errores[0]).toBe('El precio debe ser un monto entre 0 y 99999999,99 con hasta 2 decimales');
+  expect(porFila[5].errores[0]).toBe('controla_stock debe ser si o no');
+  expect(porFila[6].errores[0]).toBe('El producto no puede estar vacío');
+  expect(porFila[7].errores[0]).toBe('Producto repetido en el archivo (primera vez en la fila 2)');
+  expect(porFila[8].errores[0]).toBe('stock_inicial debe ser un entero entre 0 y 1000000');
+  expect(porFila[9].errores[0]).toBe('El precio no puede tener punto y coma decimal a la vez');
+  expect(a.resumen).toMatchObject({ crear: 1, error: 7 });
+});
+
+test('encabezado inválido, archivo vacío o campo equivocado rechazan todo el archivo con 400', async () => {
+  const falta = await previsualizar('categoria;producto\nBebidas;Café\n');
+  expect(falta.statusCode).toBe(400);
+  expect(falta.json().error).toBe('Faltan columnas obligatorias: precio');
+  const desconocida = await previsualizar('categoria;producto;precio;precio_unitario\nBebidas;Café;1;1\n');
+  expect(desconocida.statusCode).toBe(400);
+  expect(desconocida.json().error).toBe('Columna desconocida: precio_unitario');
+  const repetida = await previsualizar('categoria;producto;precio;Precio\nBebidas;Café;1;1\n');
+  expect(repetida.statusCode).toBe(400);
+  expect(repetida.json().error).toBe('Columna repetida: precio');
+  const vacio = await previsualizar(ENC + '\n');
+  expect(vacio.statusCode).toBe(400);
+  expect(vacio.json().error).toBe('El archivo no tiene filas de productos');
+  const campo = await ctx.app.inject({ method: 'POST', url: '/api/admin/menu/importar/previsualizar', ...multipart('otro', 'menu.csv', ENC) });
+  expect(campo.statusCode).toBe(400);
+  expect(campo.json().error).toBe('Falta el archivo CSV en el campo "archivo"');
+});
+
+test('confirmar aplica las filas válidas, omite las malas y registra el stock inicial', async () => {
+  const csv = [ENC,
+    'Tradicionales;Quimbolitos;0,60;si;25;;2;1',
+    'Tradicionales;Humitas;abc;si;10;;2;2',
+    'Bebidas;Café;0,50;no;;Café o aromática;1;1',
+  ].join('\n');
+  const eventos: any[] = [];
+  const cancelar = ctx.app.bus.suscribir((e) => eventos.push(e));
+  const r = await confirmar(csv);
+  cancelar();
+  expect(r.statusCode).toBe(200);
+  expect(r.json().aplicado).toBe(true);
+  expect(r.json().resumen).toMatchObject({ crear: 2, error: 1 });
+  const prods = await ctx.sql`SELECT p.nombre, p.precio, p.controla_stock, p.stock_actual, p.descripcion, c.nombre AS categoria, c.orden AS orden_categoria
+    FROM producto p JOIN categoria c ON c.id = p.categoria_id ORDER BY p.nombre`;
+  expect(prods.map((p: any) => p.nombre)).toEqual(['Café', 'Quimbolitos']);
+  expect(prods[1]).toMatchObject({ precio: '0.60', controla_stock: true, stock_actual: 25, categoria: 'Tradicionales', orden_categoria: 2 });
+  expect(prods[0]).toMatchObject({ controla_stock: false, stock_actual: null, descripcion: 'Café o aromática' });
+  const movs = await ctx.sql`SELECT m.cantidad, m.stock_resultante, m.origen, m.motivo FROM movimiento_stock m JOIN producto p ON p.id = m.producto_id WHERE p.nombre = 'Quimbolitos'`;
+  expect(movs).toHaveLength(1);
+  expect(movs[0]).toMatchObject({ cantidad: 25, stock_resultante: 25, origen: 'ajuste_manual', motivo: 'Stock inicial' });
+  expect(eventos.some((e) => e.nombre === 'catalogo')).toBe(true);
+  expect(eventos.some((e) => e.nombre === 'stock' && e.datos.stock_actual === 25)).toBe(true);
+});
+
+test('reimportar actualiza precios, no toca el stock existente y registra activar y desactivar el control', async () => {
+  await confirmar([ENC,
+    'Tradicionales;Quimbolitos;0,60;si;25;;1;1',
+    'Tradicionales;Humitas;0,80;no;;;1;2',
+    'Bebidas;Café;0,50;no;;;2;1',
+    'Bebidas;Leche;0,80;si;12;;2;2',
+  ].join('\n'));
+  await ctx.sql`UPDATE producto SET activo = false WHERE nombre = 'Café'`;
+  const csv2 = [ENC,
+    'Tradicionales;Quimbolitos;0,70;si;99;;1;1',
+    'Tradicionales;Humitas;0,80;si;15;;1;2',
+    'Bebidas;Café;0,50;no;;;2;1',
+    'Bebidas;Leche;0,80;no;;;2;2',
+    'tradicionales;quimbolitos X;1;no;;;;',
+  ].join('\n');
+  const prev = (await previsualizar(csv2)).json();
+  const f = Object.fromEntries(prev.filas.map((x: any) => [x.producto, x]));
+  expect(f['Quimbolitos'].accion).toBe('actualizar');
+  expect(f['Quimbolitos'].cambios).toContain('precio: 0.60 → 0.70');
+  expect(f['Quimbolitos'].avisos[0]).toBe('stock_inicial ignorado: el stock actual (25) solo cambia en la apertura de caja o con un ajuste con motivo');
+  expect(f['Humitas'].cambios).toContain('control de stock: no → si (stock inicial 15)');
+  expect(f['Café'].cambios).toContain('reactivar producto');
+  expect(f['Leche'].cambios).toContain('control de stock: si → no (stock actual 12)');
+  expect(f['quimbolitos X'].accion).toBe('crear');
+  const [{ n: productosAntes }] = await ctx.sql`SELECT count(*)::int AS n FROM producto`;
+  expect(productosAntes).toBe(4);
+  await confirmar(csv2);
+  const p = Object.fromEntries((await ctx.sql`SELECT nombre, precio, activo, controla_stock, stock_actual FROM producto`).map((x: any) => [x.nombre, x]));
+  expect(p['Quimbolitos']).toMatchObject({ precio: '0.70', stock_actual: 25 });
+  expect(p['Humitas']).toMatchObject({ controla_stock: true, stock_actual: 15 });
+  expect(p['Café'].activo).toBe(true);
+  expect(p['Leche']).toMatchObject({ controla_stock: false, stock_actual: null });
+  const [{ n: categorias }] = await ctx.sql`SELECT count(*)::int AS n FROM categoria`;
+  expect(categorias).toBe(2);
+  const cuadre = await ctx.sql`SELECT p.nombre, coalesce(sum(m.cantidad), 0)::int AS suma, coalesce(p.stock_actual, 0)::int AS stock
+    FROM producto p LEFT JOIN movimiento_stock m ON m.producto_id = p.id GROUP BY p.id`;
+  for (const c of cuadre) expect(c.suma).toBe(c.stock);
+  const leche = await ctx.sql`SELECT m.cantidad, m.stock_resultante, m.motivo FROM movimiento_stock m JOIN producto p ON p.id = m.producto_id WHERE p.nombre = 'Leche' ORDER BY m.creado_en`;
+  expect(leche).toHaveLength(2);
+  expect(leche[1]).toMatchObject({ cantidad: -12, stock_resultante: 0, motivo: 'Control de stock desactivado' });
+});
+
+test('cargar el menú de Delicadas crea 28 productos en 4 categorías y es idempotente', async () => {
+  const r = await ctx.app.inject({ method: 'POST', url: '/api/admin/menu/cargar-delicadas' });
+  expect(r.statusCode).toBe(200);
+  expect(r.json().resumen).toMatchObject({ crear: 28, error: 0 });
+  const cats = await ctx.sql`SELECT nombre FROM categoria ORDER BY orden`;
+  expect(cats.map((c: any) => c.nombre)).toEqual(['Tradicionales', 'Chochos y ceviches', 'Tostadas y sanduches', 'Bebidas']);
+  const conStock = await ctx.sql`SELECT nombre, stock_actual FROM producto WHERE controla_stock ORDER BY orden`;
+  expect(conStock.map((p: any) => p.nombre)).toEqual(['Tortillas de maíz con queso (5 u)', 'Quimbolitos', 'Humitas', 'Tamales de gallina']);
+  expect(conStock.every((p: any) => p.stock_actual === 0)).toBe(true);
+  const [{ precio }] = await ctx.sql`SELECT precio FROM producto WHERE nombre = 'Ceviche de chochos familiar con atún (4 porciones)'`;
+  expect(precio).toBe('9.00');
+  const otra = await ctx.app.inject({ method: 'POST', url: '/api/admin/menu/cargar-delicadas' });
+  expect(otra.json().resumen).toMatchObject({ crear: 0, actualizar: 0, sin_cambios: 28, error: 0 });
+});
+
+test('exportar y volver a importar no cambia nada; la plantilla se descarga y es válida', async () => {
+  await ctx.app.inject({ method: 'POST', url: '/api/admin/menu/cargar-delicadas' });
+  const exp = await ctx.app.inject({ method: 'GET', url: '/api/admin/menu/exportar.csv' });
+  expect(exp.statusCode).toBe(200);
+  expect(exp.headers['content-type']).toContain('text/csv');
+  expect(exp.body.split('\r\n')[0]).toBe('﻿' + ENC);
+  expect(exp.body).toContain('Tostadas y sanduches;Tostada mixta (jamón, mortadela y queso);2,00;no;;;3;2');
+  expect(exp.body).toContain('Tradicionales;Quimbolitos;0,60;si;0;;1;2');
+  const prev = (await previsualizar(exp.rawPayload)).json();
+  expect(prev.resumen).toMatchObject({ crear: 0, actualizar: 0, sin_cambios: 28, error: 0 });
+  const pl = await ctx.app.inject({ method: 'GET', url: '/api/admin/menu/plantilla.csv' });
+  expect(pl.statusCode).toBe(200);
+  expect(pl.headers['content-type']).toContain('text/csv');
+  const prevPl = (await previsualizar(pl.rawPayload)).json();
+  expect(prevPl.resumen).toMatchObject({ error: 0 });
 });
 ```
 
-- [ ] **Step 2: Ejecutar** → FAIL.
+- [ ] **Step 2: Ejecutar para ver que falla**
 
-- [ ] **Step 3: Escribir ejemplo.ts**
+Run: `npm test -- tests/importar-menu.test.ts`
+Expected: FAIL, no encuentra `src/servidor/modulos/importar-menu`.
 
-`src/servidor/modulos/ejemplo.ts`:
+- [ ] **Step 3: Escribir importar-menu.ts**
+
+`src/servidor/modulos/importar-menu.ts`:
 ```ts
-import { eq, inArray, like } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import { and, asc, eq, isNull } from 'drizzle-orm';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Db } from '../db/conexion';
-import { categoria, producto, mesero, pedidoItem, pedido, encargoItem } from '../db/schema';
-import { ErrorNegocio } from '../errores';
-import { obtenerJornadaAbierta } from './jornada';
+import { categoria, producto, movimientoStock, jornada } from '../db/schema';
+import { ErrorValidacion, exigirMonto } from '../errores';
 
-const P = '[Ejemplo] ';
-const CATEGORIAS: [string, [string, number, number | null][]][] = [
-  ['Cafés', [['Capuchino', 2.5, null], ['Americano', 1.75, null], ['Mocaccino', 3, null]]],
-  ['Sandwiches', [['Sándwich de pollo', 4.5, 12], ['Choripán', 2, 15], ['Bolón mixto', 3, 8]]],
-  ['Postres', [['Tres leches', 2.75, 6], ['Brownie', 2, 10]]],
-];
+export const COLUMNAS = ['categoria', 'producto', 'precio', 'controla_stock', 'stock_inicial', 'descripcion', 'orden_categoria', 'orden_producto'] as const;
+const OBLIGATORIAS = ['categoria', 'producto', 'precio'];
+const MAX_BYTES = 1024 * 1024;
+const MAX_FILAS = 2000;
+const MAX_ENTERO = 1_000_000;
+const MOTIVO_STOCK_INICIAL = 'Stock inicial';
+const MOTIVO_DESACTIVADO = 'Control de stock desactivado';
+const MENSAJE_PRECIO = 'El precio debe ser un monto entre 0 y 99999999,99 con hasta 2 decimales';
 
-export async function cargarDatosEjemplo(db: Db) {
-  const existentes = await db.select().from(categoria).where(like(categoria.nombre, `${P}%`));
-  let orden = 1;
-  for (const [nombreCat, productos] of CATEGORIAS) {
-    let cat = existentes.find((c) => c.nombre === P + nombreCat);
-    if (!cat) [cat] = await db.insert(categoria).values({ nombre: P + nombreCat, orden: orden }).returning();
-    orden++;
-    const ya = await db.select({ nombre: producto.nombre }).from(producto).where(eq(producto.categoria_id, cat.id));
-    for (const [nombre, precio, stock] of productos) {
-      if (ya.some((p) => p.nombre === P + nombre)) continue;
-      await db.insert(producto).values({ categoria_id: cat.id, nombre: P + nombre, precio: precio.toFixed(2), controla_stock: stock !== null, stock_actual: stock });
+export type AccionFila = 'crear' | 'actualizar' | 'sin_cambios' | 'error';
+export type FilaAnalizada = {
+  fila: number; accion: AccionFila; categoria: string; producto: string; precio: string | null;
+  controla_stock: boolean; stock_inicial: number | null; descripcion: string | null;
+  orden_categoria: number | null; orden_producto: number | null;
+  cambios: string[]; avisos: string[]; errores: string[]; categoria_id: string | null; producto_id: string | null;
+};
+export type Analisis = { filas: FilaAnalizada[]; resumen: { crear: number; actualizar: number; sin_cambios: number; error: number; categorias_nuevas: string[] } };
+
+const carpetaRecursos = () => process.env.CARPETA_RECURSOS
+  ? join(process.env.CARPETA_RECURSOS, 'recursos')
+  : join(dirname(fileURLToPath(import.meta.url)), '..', 'recursos');
+
+// Compara nombres sin distinguir mayúsculas y colapsando espacios. Las tildes sí cuentan.
+const normal = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+const normalEncabezado = (s: string) => s.trim().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, '_');
+
+function decodificar(bytes: Buffer): string {
+  let texto: string;
+  try { texto = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  catch { texto = new TextDecoder('windows-1252').decode(bytes); }
+  return texto.charCodeAt(0) === 0xfeff ? texto.slice(1) : texto;
+}
+
+export function leerCsv(bytes: Buffer) {
+  const texto = decodificar(bytes);
+  const primera = texto.split(/\r\n|\n|\r/, 1)[0] ?? '';
+  const separador: ';' | ',' = (primera.split(';').length >= primera.split(',').length) ? ';' : ',';
+  const registros: { numero: number; valores: string[] }[] = [];
+  let valores: string[] = [];
+  let celda = '';
+  let enComillas = false;
+  let linea = 1;
+  let inicio = 1;
+  const cerrar = () => {
+    valores.push(celda);
+    if (valores.some((v) => v.trim() !== '')) registros.push({ numero: inicio, valores });
+    valores = []; celda = '';
+  };
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    if (enComillas) {
+      if (c === '"') {
+        if (texto[i + 1] === '"') { celda += '"'; i++; } else { enComillas = false; }
+      } else {
+        if (c === '\n' || (c === '\r' && texto[i + 1] !== '\n')) linea++;
+        celda += c;
+      }
+      continue;
     }
+    if (c === '"' && celda === '') { enComillas = true; continue; }
+    if (c === separador) { valores.push(celda); celda = ''; continue; }
+    if (c === '\r' && texto[i + 1] === '\n') continue;
+    if (c === '\n' || c === '\r') { cerrar(); linea++; inicio = linea; continue; }
+    celda += c;
   }
-  const meseros = await db.select().from(mesero).where(like(mesero.nombre, `${P}%`));
-  for (const n of ['Carlos', 'Ana']) if (!meseros.some((m) => m.nombre === P + n)) await db.insert(mesero).values({ nombre: P + n });
-  return { cargado: true };
+  if (enComillas) throw new ErrorValidacion('El archivo tiene comillas sin cerrar');
+  if (celda !== '' || valores.length) cerrar();
+  if (!registros.length) throw new ErrorValidacion('El archivo está vacío');
+  const encabezado = registros[0].valores.map(normalEncabezado);
+  const filas = registros.slice(1).map((r) => ({
+    numero: r.numero,
+    celdas: Object.fromEntries(encabezado.map((col, j) => [col, r.valores[j] ?? ''])) as Record<string, string>,
+  }));
+  return { separador, encabezado, filas };
 }
 
-export async function borrarDatosEjemplo(db: Db) {
-  if (await obtenerJornadaAbierta(db)) throw new ErrorNegocio('Hay caja abierta; cierra la caja antes de borrar los datos de ejemplo');
-  const prods = await db.select().from(producto).where(like(producto.nombre, `${P}%`));
-  for (const p of prods) {
-    const [usado] = await db.select({ id: pedidoItem.id }).from(pedidoItem).where(eq(pedidoItem.producto_id, p.id)).limit(1);
-    const [enEncargo] = await db.select({ id: encargoItem.id }).from(encargoItem).where(eq(encargoItem.producto_id, p.id)).limit(1);
-    if (usado || enEncargo) await db.update(producto).set({ activo: false, actualizado_en: new Date() }).where(eq(producto.id, p.id));
-    else await db.delete(producto).where(eq(producto.id, p.id));
+function validarEncabezado(encabezado: string[]) {
+  const vistos = new Set<string>();
+  for (const col of encabezado) {
+    if (!(COLUMNAS as readonly string[]).includes(col)) throw new ErrorValidacion(`Columna desconocida: ${col}`);
+    if (vistos.has(col)) throw new ErrorValidacion(`Columna repetida: ${col}`);
+    vistos.add(col);
   }
-  const cats = await db.select().from(categoria).where(like(categoria.nombre, `${P}%`));
-  for (const c of cats) {
-    const [queda] = await db.select({ id: producto.id }).from(producto).where(eq(producto.categoria_id, c.id)).limit(1);
-    if (queda) await db.update(categoria).set({ activa: false, actualizado_en: new Date() }).where(eq(categoria.id, c.id));
-    else await db.delete(categoria).where(eq(categoria.id, c.id));
-  }
-  const meseros = await db.select().from(mesero).where(like(mesero.nombre, `${P}%`));
-  for (const m of meseros) {
-    const [usado] = await db.select({ id: pedido.id }).from(pedido).where(eq(pedido.mesero_id, m.id)).limit(1);
-    if (usado) await db.update(mesero).set({ activo: false, actualizado_en: new Date() }).where(eq(mesero.id, m.id));
-    else await db.delete(mesero).where(eq(mesero.id, m.id));
-  }
-  return { borrado: true };
+  const faltan = OBLIGATORIAS.filter((c) => !vistos.has(c));
+  if (faltan.length) throw new ErrorValidacion(`Faltan columnas obligatorias: ${faltan.join(', ')}`);
 }
 
-export function rutasEjemplo(app: FastifyInstance) {
-  app.post('/api/admin/datos-ejemplo', async () => { const r = await cargarDatosEjemplo(app.db); app.bus.emitir('catalogo'); app.bus.emitir('config'); return r; });
-  app.post('/api/admin/datos-ejemplo/borrar', async () => { const r = await borrarDatosEjemplo(app.db); app.bus.emitir('catalogo'); app.bus.emitir('config'); return r; });
+function leerEntero(texto: string, nombre: string, f: FilaAnalizada): number | null {
+  const t = texto.trim();
+  if (t === '') return null;
+  if (!/^\d+$/.test(t) || Number(t) > MAX_ENTERO) { f.errores.push(`${nombre} debe ser un entero entre 0 y ${MAX_ENTERO}`); return null; }
+  return Number(t);
+}
+
+function leerPrecio(texto: string, f: FilaAnalizada): string | null {
+  let t = texto.trim().replace(/^\$\s*/, '');
+  if (t.includes(',') && t.includes('.')) { f.errores.push('El precio no puede tener punto y coma decimal a la vez'); return null; }
+  t = t.replace(',', '.');
+  try { return exigirMonto(t, MENSAJE_PRECIO); }
+  catch { f.errores.push(MENSAJE_PRECIO); return null; }
+}
+
+export async function analizarMenu(db: Db, bytes: Buffer): Promise<Analisis> {
+  const { encabezado, filas } = leerCsv(bytes);
+  validarEncabezado(encabezado);
+  if (!filas.length) throw new ErrorValidacion('El archivo no tiene filas de productos');
+  if (filas.length > MAX_FILAS) throw new ErrorValidacion(`El archivo supera el máximo de ${MAX_FILAS} productos`);
+
+  const categorias = await db.select().from(categoria);
+  const productos = await db.select().from(producto);
+  const primeraVez = new Map<string, number>();
+  const ordenCategoria = new Map<string, { orden: number; fila: number }>();
+  const nuevas: string[] = [];
+  const resultado: FilaAnalizada[] = [];
+
+  for (const { numero, celdas } of filas) {
+    const f: FilaAnalizada = {
+      fila: numero, accion: 'crear', categoria: (celdas.categoria ?? '').trim(), producto: (celdas.producto ?? '').trim(),
+      precio: null, controla_stock: false, stock_inicial: null, descripcion: null, orden_categoria: null, orden_producto: null,
+      cambios: [], avisos: [], errores: [], categoria_id: null, producto_id: null,
+    };
+    if (!f.categoria) f.errores.push('La categoría no puede estar vacía');
+    else if (f.categoria.length > 80) f.errores.push('La categoría admite hasta 80 caracteres');
+    if (!f.producto) f.errores.push('El producto no puede estar vacío');
+    else if (f.producto.length > 120) f.errores.push('El producto admite hasta 120 caracteres');
+    if (f.categoria && f.producto) {
+      const clave = `${normal(f.categoria)}|${normal(f.producto)}`;
+      const previa = primeraVez.get(clave);
+      if (previa !== undefined) f.errores.push(`Producto repetido en el archivo (primera vez en la fila ${previa})`);
+      else primeraVez.set(clave, numero);
+    }
+    f.precio = leerPrecio(celdas.precio ?? '', f);
+    const controla = (celdas.controla_stock ?? '').trim().toLowerCase();
+    if (controla === 'si' || controla === 'sí') f.controla_stock = true;
+    else if (controla !== 'no' && controla !== '') f.errores.push('controla_stock debe ser si o no');
+    f.stock_inicial = leerEntero(celdas.stock_inicial ?? '', 'stock_inicial', f);
+    const descripcion = (celdas.descripcion ?? '').trim();
+    if (descripcion.length > 300) f.errores.push('La descripción admite hasta 300 caracteres');
+    f.descripcion = descripcion || null;
+    f.orden_categoria = leerEntero(celdas.orden_categoria ?? '', 'orden_categoria', f);
+    f.orden_producto = leerEntero(celdas.orden_producto ?? '', 'orden_producto', f);
+    if (f.categoria && f.orden_categoria !== null) {
+      const previo = ordenCategoria.get(normal(f.categoria));
+      if (previo && previo.orden !== f.orden_categoria) f.errores.push(`orden_categoria distinto al de la fila ${previo.fila} para la misma categoría`);
+      else if (!previo) ordenCategoria.set(normal(f.categoria), { orden: f.orden_categoria, fila: numero });
+    }
+    if (f.stock_inicial !== null && !f.controla_stock) f.avisos.push('stock_inicial ignorado porque controla_stock es no');
+
+    if (!f.errores.length) {
+      const cats = categorias.filter((c) => normal(c.nombre) === normal(f.categoria));
+      if (cats.length > 1) f.errores.push(`Hay más de una categoría llamada "${f.categoria}" en el sistema; corrígelo en Admin`);
+      const cat = cats.length === 1 ? cats[0] : null;
+      if (!f.errores.length && cat) {
+        f.categoria_id = cat.id;
+        const prods = productos.filter((p) => p.categoria_id === cat.id && normal(p.nombre) === normal(f.producto));
+        if (prods.length > 1) f.errores.push(`Hay más de un producto llamado "${f.producto}" en la categoría; corrígelo en Admin`);
+        const p = prods.length === 1 ? prods[0] : null;
+        if (!f.errores.length) {
+          if (!cat.activa) f.cambios.push('reactivar categoría');
+          if (f.orden_categoria !== null && f.orden_categoria !== cat.orden) f.cambios.push(`orden de categoría: ${cat.orden} → ${f.orden_categoria}`);
+          if (p) {
+            f.producto_id = p.id;
+            if (p.precio !== f.precio) f.cambios.push(`precio: ${p.precio} → ${f.precio}`);
+            if (f.descripcion !== null && f.descripcion !== (p.descripcion ?? null)) f.cambios.push('descripción');
+            if (f.orden_producto !== null && f.orden_producto !== p.orden) f.cambios.push(`orden: ${p.orden} → ${f.orden_producto}`);
+            if (!p.activo) f.cambios.push('reactivar producto');
+            if (!p.controla_stock && f.controla_stock) f.cambios.push(`control de stock: no → si (stock inicial ${f.stock_inicial ?? 0})`);
+            if (p.controla_stock && !f.controla_stock) f.cambios.push(`control de stock: si → no (stock actual ${p.stock_actual ?? 0})`);
+            if (p.controla_stock && f.controla_stock && f.stock_inicial !== null && f.stock_inicial !== p.stock_actual) {
+              f.avisos.push(`stock_inicial ignorado: el stock actual (${p.stock_actual}) solo cambia en la apertura de caja o con un ajuste con motivo`);
+            }
+            f.accion = f.cambios.length ? 'actualizar' : 'sin_cambios';
+          }
+        }
+      }
+      if (!f.errores.length && !cat && !nuevas.some((n) => normal(n) === normal(f.categoria))) nuevas.push(f.categoria);
+    }
+    if (f.errores.length) f.accion = 'error';
+    resultado.push(f);
+  }
+  const cuenta = (a: AccionFila) => resultado.filter((f) => f.accion === a).length;
+  return { filas: resultado, resumen: { crear: cuenta('crear'), actualizar: cuenta('actualizar'), sin_cambios: cuenta('sin_cambios'), error: cuenta('error'), categorias_nuevas: nuevas } };
+}
+
+export async function aplicarMenu(db: Db, bytes: Buffer) {
+  const analisis = await analizarMenu(db, bytes);
+  const aplicables = analisis.filas.filter((f) => f.accion === 'crear' || f.accion === 'actualizar');
+  const ordenPorCategoria = new Map<string, number>();
+  for (const f of aplicables) if (f.orden_categoria !== null && !ordenPorCategoria.has(normal(f.categoria))) ordenPorCategoria.set(normal(f.categoria), f.orden_categoria);
+  const stock_cambiado: { producto_id: string; stock_actual: number | null }[] = [];
+
+  await db.transaction(async (tx) => {
+    const [abierta] = await tx.select({ id: jornada.id }).from(jornada).where(isNull(jornada.cerrada_en));
+    const jornadaId = abierta?.id ?? null;
+    const idCategoria = new Map<string, string>();
+    const categoriasTocadas = new Set<string>();
+    for (const f of aplicables) {
+      const clave = normal(f.categoria);
+      let catId = idCategoria.get(clave) ?? f.categoria_id;
+      if (!catId) {
+        const [c] = await tx.insert(categoria).values({ nombre: f.categoria, orden: ordenPorCategoria.get(clave) ?? 0 }).returning();
+        catId = c.id;
+        categoriasTocadas.add(catId);
+      } else if (!categoriasTocadas.has(catId)) {
+        const orden = ordenPorCategoria.get(clave);
+        await tx.update(categoria).set({ activa: true, ...(orden !== undefined ? { orden } : {}) }).where(eq(categoria.id, catId));
+        categoriasTocadas.add(catId);
+      }
+      idCategoria.set(clave, catId);
+
+      if (f.accion === 'crear') {
+        const stock = f.controla_stock ? (f.stock_inicial ?? 0) : null;
+        const [p] = await tx.insert(producto).values({
+          categoria_id: catId, nombre: f.producto, descripcion: f.descripcion, precio: f.precio!, activo: true,
+          controla_stock: f.controla_stock, stock_actual: stock, orden: f.orden_producto ?? 0,
+        }).returning();
+        if (stock !== null) {
+          await tx.insert(movimientoStock).values({ producto_id: p.id, jornada_id: jornadaId, cantidad: stock, stock_resultante: stock, origen: 'ajuste_manual', motivo: MOTIVO_STOCK_INICIAL });
+          stock_cambiado.push({ producto_id: p.id, stock_actual: stock });
+        }
+        continue;
+      }
+
+      const [actual] = await tx.select().from(producto).where(eq(producto.id, f.producto_id!)).for('update');
+      const cambios: Partial<typeof producto.$inferInsert> = { precio: f.precio!, activo: true };
+      if (f.descripcion !== null) cambios.descripcion = f.descripcion;
+      if (f.orden_producto !== null) cambios.orden = f.orden_producto;
+      if (!actual.controla_stock && f.controla_stock) {
+        const stock = f.stock_inicial ?? 0;
+        cambios.controla_stock = true; cambios.stock_actual = stock;
+        await tx.insert(movimientoStock).values({ producto_id: actual.id, jornada_id: jornadaId, cantidad: stock, stock_resultante: stock, origen: 'ajuste_manual', motivo: MOTIVO_STOCK_INICIAL });
+        stock_cambiado.push({ producto_id: actual.id, stock_actual: stock });
+      } else if (actual.controla_stock && !f.controla_stock) {
+        const stock = actual.stock_actual ?? 0;
+        cambios.controla_stock = false; cambios.stock_actual = null;
+        await tx.insert(movimientoStock).values({ producto_id: actual.id, jornada_id: jornadaId, cantidad: -stock, stock_resultante: 0, origen: 'ajuste_manual', motivo: MOTIVO_DESACTIVADO });
+        stock_cambiado.push({ producto_id: actual.id, stock_actual: null });
+      }
+      await tx.update(producto).set(cambios).where(eq(producto.id, actual.id));
+    }
+  });
+  return { ...analisis, aplicado: true as const, stock_cambiado };
+}
+
+export async function exportarMenuCsv(db: Db): Promise<string> {
+  const filas = await db.select({ c: categoria, p: producto }).from(producto)
+    .innerJoin(categoria, eq(categoria.id, producto.categoria_id))
+    .where(and(eq(producto.activo, true), eq(categoria.activa, true)))
+    .orderBy(asc(categoria.orden), asc(categoria.nombre), asc(producto.orden), asc(producto.nombre));
+  const celda = (v: string) => (/[;"\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  const lineas = [COLUMNAS.join(';'), ...filas.map(({ c, p }) => [
+    c.nombre, p.nombre, p.precio.replace('.', ','), p.controla_stock ? 'si' : 'no',
+    p.controla_stock ? String(p.stock_actual ?? 0) : '', p.descripcion ?? '', String(c.orden), String(p.orden),
+  ].map(celda).join(';'))];
+  return '﻿' + lineas.join('\r\n') + '\r\n';
+}
+
+async function leerArchivo(req: FastifyRequest): Promise<Buffer> {
+  const parte = await req.file({ limits: { fileSize: MAX_BYTES, files: 1 } });
+  if (!parte || parte.fieldname !== 'archivo') throw new ErrorValidacion('Falta el archivo CSV en el campo "archivo"');
+  try {
+    return await parte.toBuffer();
+  } catch (e: any) {
+    if (e?.code === 'FST_REQ_FILE_TOO_LARGE') throw new ErrorValidacion('El archivo supera el tamaño máximo de 1 MB');
+    throw e;
+  }
+}
+
+export function rutasImportarMenu(app: FastifyInstance) {
+  const avisar = (r: Awaited<ReturnType<typeof aplicarMenu>>) => {
+    if (r.resumen.crear + r.resumen.actualizar > 0) app.bus.emitir('catalogo');
+    for (const s of r.stock_cambiado) app.bus.emitir('stock', s);
+  };
+  app.post('/api/admin/menu/importar/previsualizar', async (req) => analizarMenu(app.db, await leerArchivo(req)));
+  app.post('/api/admin/menu/importar/confirmar', async (req) => {
+    const r = await aplicarMenu(app.db, await leerArchivo(req));
+    avisar(r);
+    return r;
+  });
+  app.post('/api/admin/menu/cargar-delicadas', async () => {
+    const r = await aplicarMenu(app.db, await readFile(join(carpetaRecursos(), 'menu-delicadas.csv')));
+    avisar(r);
+    return r;
+  });
+  app.get('/api/admin/menu/plantilla.csv', async (_req, reply) => {
+    reply.type('text/csv; charset=utf-8').header('Content-Disposition', 'attachment; filename="plantilla-menu.csv"');
+    return readFile(join(carpetaRecursos(), 'plantilla-menu.csv'));
+  });
+  app.get('/api/admin/menu/exportar.csv', async (_req, reply) => {
+    reply.type('text/csv; charset=utf-8').header('Content-Disposition', 'attachment; filename="menu.csv"');
+    return exportarMenuCsv(app.db);
+  });
 }
 ```
 
-Registrar en `app.ts`: `rutasEjemplo(app);`.
+Notas para el ejecutor:
+- `leerCsv` registra como número de fila la línea donde empieza el registro: el encabezado es la fila 1, igual que en Excel. Un salto de línea dentro de comillas suma línea pero no cierra el registro.
+- `validarEncabezado` y las comprobaciones de archivo vacío lanzan `ErrorValidacion` (400) y rechazan el archivo entero; todo lo demás es error de la fila.
+- Si al ejecutar la prueba "reimportar" el conteo de categorías da 3, es que "tradicionales" en minúsculas no se identificó con "Tradicionales": revisar `normal()`.
+- `leerArchivo` traduce el exceso de tamaño a su propio 400 con el límite de 1 MB, sin depender del mensaje global del 413 de `app.ts`.
 
-- [ ] **Step 4: Pestaña en admin**: en `AppAdmin.tsx` agregar pestaña `['ejemplo', 'Datos de ejemplo']` que muestra dos botones: "Cargar menú de ejemplo" (`api.post('/api/admin/datos-ejemplo')`) y "Borrar datos de ejemplo" (con `confirm`), mostrando el error del servidor si lo hay con `Aviso`.
+- [ ] **Step 4: Registrar las rutas**
 
-- [ ] **Step 5: Ejecutar** → `npm run typecheck && npm run build && npm test` → todo pasa.
+En `src/servidor/app.ts`, importar `import { rutasImportarMenu } from './modulos/importar-menu';` y llamar `rutasImportarMenu(app);` inmediatamente después de `rutasCatalogo(app);`.
 
-- [ ] **Step 6: Commit y push**
+- [ ] **Step 5: Ejecutar**
+
+Run: `npm run typecheck && npm test`
+Expected: sin errores de tipos; `tests/importar-menu.test.ts` con 10 pruebas pasando y el resto de la suite sin cambios.
+
+- [ ] **Step 6: Verificación manual con Excel o Numbers**
+
+1. `npm run dev`. En otra terminal: `curl -s -o /tmp/plantilla.csv http://127.0.0.1:3000/api/admin/menu/plantilla.csv`.
+2. Abrir `/tmp/plantilla.csv` en Excel o Numbers. Esperado: 8 columnas separadas correctamente, tildes legibles ("Panadería"), precios con coma.
+3. Cambiar el precio de "Pan de yuca" a `0,55`, guardar como CSV UTF-8, y previsualizar: `curl -s -F archivo=@/tmp/plantilla.csv http://127.0.0.1:3000/api/admin/menu/importar/previsualizar`. Esperado: JSON con 3 filas `crear` y precio `0.55`.
+4. Detener con Ctrl+C.
+
+- [ ] **Step 7: Commit y push**
 
 ```bash
-git add -A && git commit -m "Datos de ejemplo cargables y borrables desde admin" && git push origin main
+git add -A && git commit -m "Carga masiva del menú por CSV con vista previa, exportación y menú de Delicadas" && git push origin main
 ```
 
 ---
 
+### Task 7: Pantalla "Importar menú" en admin
+
+**Modelo ejecutor:** `claude-sonnet-5`. **Motivo:** el plan trae el componente completo y la API ya está probada en la Task 6; la tarea es transcribir, compilar y verificar en el navegador.
+**Skill del ejecutor:** `superpowers:test-driven-development` (la verificación es de compilación y manual, porque el proyecto no tiene pruebas de componentes; el comportamiento lo cubren las pruebas de la Task 6). **Al terminar:** `superpowers:verification-before-completion`.
+**Revisor:** `claude-fable-5-1` con `superpowers:requesting-code-review`.
+
+**Files:**
+- Create: `src/web/admin/ImportarMenu.tsx`
+- Modify: `src/web/admin/AppAdmin.tsx` (pestaña "Importar menú")
+
+**Interfaces:**
+- Consumes: `api.post(url, cuerpo?)` y `api.subirArchivo(url, campo, archivo)` de `src/web/api.ts` (plan 1, Task 6); `Aviso({ tipo, texto })` de `src/web/componentes/Aviso.tsx` (plan 1, Task 7); rutas de la Task 6.
+- Produces: `ImportarMenu()` sin props. Textos de botones exactos, que usa el manual del plan 4: "Descargar plantilla", "Descargar menú actual", "Cargar menú de Delicadas", "Ver vista previa", "Confirmar carga", "Elegir otro archivo".
+
+- [ ] **Step 1: Escribir ImportarMenu.tsx**
+
+`src/web/admin/ImportarMenu.tsx`:
+```tsx
+import { useState } from 'preact/hooks';
+import { api } from '../api';
+import { Aviso } from '../componentes/Aviso';
+
+const ETIQUETA: Record<string, [string, string]> = {
+  crear: ['Crear', 'ok'],
+  actualizar: ['Actualizar', 'alerta'],
+  sin_cambios: ['Sin cambios', ''],
+  error: ['Error', 'error'],
+};
+
+export function ImportarMenu() {
+  const [archivo, setArchivo] = useState<File | null>(null);
+  const [analisis, setAnalisis] = useState<any>(null);
+  const [resultado, setResultado] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+
+  const reiniciar = () => { setArchivo(null); setAnalisis(null); setResultado(null); setError(null); };
+  const textoResultado = (r: any) => `Carga aplicada: ${r.resumen.crear} creados, ${r.resumen.actualizar} actualizados, ${r.resumen.sin_cambios} sin cambios, ${r.resumen.error} filas con error no cargadas.`;
+
+  const vistaPrevia = async () => {
+    if (!archivo) return;
+    setOcupado(true); setError(null); setResultado(null);
+    try { setAnalisis(await api.subirArchivo('/api/admin/menu/importar/previsualizar', 'archivo', archivo)); }
+    catch (e: any) { setAnalisis(null); setError(e.message); }
+    finally { setOcupado(false); }
+  };
+  const confirmarCarga = async () => {
+    if (!archivo) return;
+    setOcupado(true); setError(null);
+    try { const r = await api.subirArchivo('/api/admin/menu/importar/confirmar', 'archivo', archivo); setAnalisis(r); setResultado(textoResultado(r)); }
+    catch (e: any) { setError(e.message); }
+    finally { setOcupado(false); }
+  };
+  const cargarDelicadas = async () => {
+    if (!confirm('¿Cargar el menú de Delicadas? Los productos que ya existan se actualizan con los precios de la carta; el stock actual no cambia.')) return;
+    setOcupado(true); setError(null); setArchivo(null);
+    try { const r = await api.post('/api/admin/menu/cargar-delicadas'); setAnalisis(r); setResultado(textoResultado(r)); }
+    catch (e: any) { setError(e.message); }
+    finally { setOcupado(false); }
+  };
+
+  const aplicables = analisis ? analisis.resumen.crear + analisis.resumen.actualizar : 0;
+  return (
+    <div style="display:grid;gap:16px">
+      <section class="tarjeta" style="display:grid;gap:8px">
+        <h2 style="margin:0">Importar menú</h2>
+        <p style="margin:0">Carga o actualiza todo el menú desde un archivo CSV hecho en Excel. Si un producto ya existe se actualiza su precio y datos; el stock actual nunca cambia por aquí. Las filas con error no se cargan y se listan para corregirlas.</p>
+        <div class="fila">
+          <a href="/api/admin/menu/plantilla.csv" download style="flex:0 0 auto"><button type="button">Descargar plantilla</button></a>
+          <a href="/api/admin/menu/exportar.csv" download style="flex:0 0 auto"><button type="button">Descargar menú actual</button></a>
+          <button type="button" onClick={cargarDelicadas} disabled={ocupado} style="flex:0 0 auto">Cargar menú de Delicadas</button>
+        </div>
+      </section>
+
+      <section class="tarjeta" style="display:grid;gap:8px">
+        <label>Archivo CSV
+          <input type="file" accept=".csv,text/csv" onChange={(e) => { setArchivo((e.target as HTMLInputElement).files?.[0] ?? null); setAnalisis(null); setResultado(null); setError(null); }} />
+        </label>
+        <div class="fila">
+          <button class="primario" type="button" onClick={vistaPrevia} disabled={!archivo || ocupado} style="flex:0 0 auto">Ver vista previa</button>
+          {analisis && !resultado && archivo && <button class="primario" type="button" onClick={confirmarCarga} disabled={ocupado || aplicables === 0} style="flex:0 0 auto">Confirmar carga</button>}
+          {(analisis || archivo) && <button type="button" onClick={reiniciar} disabled={ocupado} style="flex:0 0 auto">Elegir otro archivo</button>}
+        </div>
+      </section>
+
+      <Aviso tipo="error" texto={error} />
+      <Aviso tipo="ok" texto={resultado} />
+
+      {analisis && (
+        <section class="tarjeta" style="display:grid;gap:8px">
+          <p style="margin:0">
+            <span class="pill ok">{analisis.resumen.crear} crear</span>{' '}
+            <span class="pill alerta">{analisis.resumen.actualizar} actualizar</span>{' '}
+            <span class="pill">{analisis.resumen.sin_cambios} sin cambios</span>{' '}
+            <span class="pill error">{analisis.resumen.error} con error</span>
+            {analisis.resumen.categorias_nuevas.length > 0 && <span> · Categorías nuevas: {analisis.resumen.categorias_nuevas.join(', ')}</span>}
+          </p>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Fila</th><th>Acción</th><th>Categoría</th><th>Producto</th><th style="text-align:right">Precio</th><th>Detalle</th></tr></thead>
+              <tbody>
+                {analisis.filas.map((f: any) => (
+                  <tr key={f.fila}>
+                    <td>{f.fila}</td>
+                    <td><span class={`pill ${ETIQUETA[f.accion][1]}`}>{ETIQUETA[f.accion][0]}</span></td>
+                    <td>{f.categoria}</td>
+                    <td>{f.producto}</td>
+                    <td style="text-align:right">{f.precio ?? ''}</td>
+                    <td style="font-size:14px">
+                      {f.errores.map((t: string) => <div key={t} style="color:var(--error)">{t}</div>)}
+                      {f.cambios.map((t: string) => <div key={t}>{t}</div>)}
+                      {f.avisos.map((t: string) => <div key={t} style="color:var(--alerta)">{t}</div>)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Añadir la pestaña**
+
+En `src/web/admin/AppAdmin.tsx`: importar `import { ImportarMenu } from './ImportarMenu';`, añadir `['importar', 'Importar menú']` a `PESTANAS` justo después de `['menu', 'Menú']`, ampliar el tipo del estado `pestana` con `'importar'`, e insertar `{pestana === 'importar' && <ImportarMenu />}` junto a las demás pestañas.
+
+- [ ] **Step 3: Verificar tipos, build y pruebas**
+
+Run: `npm run typecheck && npm run build && npm test`
+Expected: sin errores; toda la suite pasa.
+
+- [ ] **Step 4: Verificación manual en el navegador**
+
+1. `npm run dev` y abrir `http://127.0.0.1:3000/admin`, pestaña "Importar menú".
+2. "Cargar menú de Delicadas" y aceptar. Esperado: aviso verde "Carga aplicada: 28 creados, 0 actualizados, 0 sin cambios, 0 filas con error no cargadas." y tabla con 28 filas "Crear". En la pestaña "Menú" aparecen las 4 categorías; Quimbolitos con stock 0.
+3. "Descargar menú actual". Abrir el archivo en Excel o Numbers, cambiar el precio de Capuchino a `1,75`, añadir una fila `Bebidas;Agua;abc;no;;;4;12`, guardar como CSV UTF-8.
+4. Elegir ese archivo y "Ver vista previa". Esperado: Capuchino "Actualizar" con `precio: 1.50 → 1.75`, Agua "Error" con el mensaje de precio, 27 "Sin cambios". Nada cambia todavía en la pestaña "Menú".
+5. "Confirmar carga". Esperado: aviso "Carga aplicada: 0 creados, 1 actualizados, 27 sin cambios, 1 filas con error no cargadas."; en "Menú", Capuchino a 1.75 y no existe Agua. Si hay una pantalla de mesero abierta, el precio se actualiza sin recargar.
+6. Detener con Ctrl+C.
+
+- [ ] **Step 5: Commit y push**
+
+```bash
+git add -A && git commit -m "Pantalla Importar menú en admin con vista previa y confirmación" && git push origin main
+```
+
+---
 ## Cierre del plan 3
 
 **Modelo:** `claude-sonnet-5`. **Motivo:** son comandos y actualizaciones de documentos ya definidos. **Skill:** `superpowers:verification-before-completion`. **Revisor:** `claude-fable-5-1` confirma que ESTADO.md y BITACORA.md reflejan la salida real.
@@ -1315,6 +1918,6 @@ git add -A && git commit -m "Datos de ejemplo cargables y borrables desde admin"
 
 ## Self-review
 
-- **Cobertura:** 4.4 encargos → Task 3 y 4; reglas 6 y 13 → Task 1; regla 12 (abonos en cierre) ya en plan 2 Task 2 y verificada en Task 3; reglas 16 a 19 → Task 3; 7.2 → Task 1; 7.3 egresos y encargos → Tasks 2 y 4; 7.4 clientes, reportes, datos de ejemplo → Tasks 5 y 6; 7.5 constancia → Task 3. Quedan para plan 4: respaldos, restaurar, descargar log, lanzador, empaquetado, E2E.
+- **Cobertura:** 4.4 encargos → Task 3 y 4; reglas 6 y 13 → Task 1; regla 12 (abonos en cierre) ya en plan 2 Task 2 y verificada en Task 3; reglas 16 a 19 → Task 3; 7.2 → Task 1; 7.3 egresos y encargos → Tasks 2 y 4; 7.4 clientes y reportes → Task 5; 4.6, regla 20 y 7.4 importar menú → Tasks 6 y 7; 7.5 constancia → Task 3. Quedan para plan 4: respaldos, restaurar, descargar log, lanzador, empaquetado, E2E.
 - **Consistencia:** `listarEncargos` devuelve `{ encargos, saldo_caja_encargos }`; `abonar` devuelve `{ abono, repetido, encargo }`; `entregar` devuelve `{ encargo, pedido_id }` y `cancelar` `{ encargo, pedido_id, egreso_id }`; `resumenJornada` expone `saldo_caja_encargos` (definido en plan 2 Task 2) usado en cierre y reportes.
 - **Sin placeholders.**

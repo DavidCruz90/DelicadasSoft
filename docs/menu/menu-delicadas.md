@@ -1,6 +1,6 @@
 # Menú real de la cafetería
 
-Fuente: foto de la carta impresa que Dave envió el 2026-09-17. Transcripción literal de nombres y precios, en dólares, con el mismo orden y agrupación visual de la carta. La foto original no está en el repositorio; si se quiere conservarla, copiarla como `docs/menu/menu-delicadas.jpg`.
+Fuente: foto de la carta impresa que Dave envió el 2026-09-17. Transcripción literal de nombres y precios, en dólares, con el mismo orden y agrupación visual de la carta. En el sistema los nombres se escriben con mayúsculas y tildes normales; la tabla siguiente conserva el texto de la carta. La foto original no está en el repositorio; si se quiere conservarla, copiarla como `docs/menu/menu-delicadas.jpg`.
 
 ## Datos del local que figuran en la carta
 
@@ -72,11 +72,16 @@ Total: 28 productos. Los precios ya incluyen todo; la cafetería no cobra impues
 
 - **Choripán a 2.00** es el producto del caso "ítem libre" del 2026-09-14: el choripán sin pan a 1.50 no está en la carta y se registra como ítem libre con texto y valor.
 - **Quimbolitos** es el producto del caso de encargos: "30 quimbolitos el martes para el jueves".
-- **Variantes sin precio propio** (sabor de jugo o batido, café o aromática, jamón o mortadela o mixto, gaseosa o mineral): con el diseño actual se registran como un solo producto y la variante va en la nota del ítem, que el mesero escribe y cocina ve. No hace falta cambiar el diseño.
+- **Variantes sin precio propio** (sabor de jugo o batido, café o aromática, jamón o mortadela o mixto, gaseosa o mineral): se registran como un solo producto y la variante va en la nota del ítem, que el mesero escribe y cocina ve. No hace falta cambiar el diseño.
 
-## Preguntas abiertas para Dave (no se asume ninguna respuesta)
+## Decisiones de Dave sobre este menú (2026-09-17)
 
-1. **Categorías del sistema.** La carta agrupa visualmente en cuatro bloques sin nombre. Propuesta para el catálogo, pendiente de confirmar: "Tradicionales" (grupo 1), "Chochos y ceviches" (chochos y ceviches del grupo 2), "Tostadas y sanduches" (resto del grupo 2), "Bebidas" (grupos 3 y 4).
-2. **Qué productos llevan control de stock.** Dave dijo el 2026-09-12 que algunos productos empiezan el día con cantidad limitada. La carta no lo indica. Hay que saber cuáles.
-3. **Ceviche familiar con sardina y con atún:** ¿dos productos separados, como están transcritos, o uno con la variante en la nota? Tienen precios distintos, así que la propuesta es dos productos.
-4. **Menú de ejemplo del sistema:** el plan 3, tarea 6, carga un menú ficticio para probar. ¿Se reemplaza por este menú real? El archivo `menu-delicadas.json` ya lo deja listo para eso.
+1. **Categorías aprobadas:** Tradicionales (grupo 1), Chochos y ceviches, Tostadas y sanduches (grupo 2), Bebidas (grupos 3 y 4).
+2. **Productos con control de stock:** Tortillas de maíz con queso (5 u), Quimbolitos, Humitas y Tamales de gallina. El resto no controla stock. La cantidad de cada día se escribe en la apertura de caja.
+3. **Ceviche familiar con sardina y con atún:** dos productos separados, porque tienen precios distintos.
+4. **El menú ficticio de ejemplo se reemplaza por este menú real**, y se añade una carga masiva por CSV para poder implementar el sistema en otras cafeterías.
+
+## Archivos del menú en formato del sistema
+
+- `src/servidor/recursos/menu-delicadas.csv`: este menú, con categorías, orden y control de stock. Se carga desde Admin → Importar menú → "Cargar menú de Delicadas".
+- Formato y reglas de carga: `docs/menu/formato-csv.md`.

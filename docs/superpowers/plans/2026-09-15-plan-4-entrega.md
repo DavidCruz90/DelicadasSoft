@@ -607,6 +607,7 @@ await build({
 copyFileSync('build/tmp/cafeteria.cjs', join(salida, 'servidor', 'cafeteria.cjs'));
 cpSync('src/servidor/db/migraciones', join(salida, 'servidor', 'migraciones'), { recursive: true });
 cpSync('dist/web', join(salida, 'servidor', 'web'), { recursive: true });
+cpSync('src/servidor/recursos', join(salida, 'servidor', 'recursos'), { recursive: true });
 writeFileSync(join(salida, '.env'), 'DATABASE_URL=postgres://cafeteria:cafeteria@127.0.0.1:5433/cafeteria\nPUERTO=3000\nPG_BIN=pgsql/bin\n');
 writeFileSync(join(salida, 'LEEME.txt'), `CAFETERIA POS
 
@@ -859,7 +860,7 @@ git add -A && git commit -m "Prueba extremo a extremo de un día completo con Pl
 - Produces: manual en español, sin jerga, para instalar y operar. Secciones exactas: (1) Qué necesitas (PC Windows 10/11, WiFi del local, celulares o tablets con navegador); (2) Instalación (copiar carpeta `Cafeteria` a `C:\Cafeteria`, descargar PostgreSQL ZIP y copiar `pgsql`, doble clic, permitir en firewall); (3) Conectar dispositivos (página `/conectar`, escanear QR, guardar como acceso directo en pantalla de inicio del celular); (4) Primer día (admin: nombre del local, mesas, meseros, menú con fotos y stock; activar cocina si hay pantalla); (5) Cada día (abrir caja con fondo y stock; mesero; caja: agregar, anular, dividir, cobrar, ticket; egresos; encargos; cerrar caja con arqueo); (6) Reportes y CSV; (7) Respaldos (dónde están, cómo copiar, cómo restaurar); (8) Si algo falla (no arranca PostgreSQL, celular no conecta: mismo WiFi, IP cambió, firewall; pantalla en blanco: recargar; descargar registro y enviarlo); (9) Apagar y encender.
 - Cada sección con pasos numerados y el texto exacto de los botones tal como aparecen en pantalla.
 
-- [ ] **Step 1: Escribir docs/MANUAL.md** siguiendo las nueve secciones anteriores, con los nombres de botones definidos en los planes 1 a 4 ("Abrir caja", "Enviar a cocina", "Dividir cuenta", "+ Cuenta", "Mover aquí", "Cobrar exacto", "Registrar pago", "Egresos", "Encargos", "+ Nuevo encargo", "Abonar", "Entregar y cobrar saldo", "Cerrar caja", "Respaldar ahora", "Restaurar", "Descargar registro de hoy", "Cargar menú de ejemplo").
+- [ ] **Step 1: Escribir docs/MANUAL.md** siguiendo las nueve secciones anteriores, con los nombres de botones definidos en los planes 1 a 4 ("Abrir caja", "Enviar a cocina", "Dividir cuenta", "+ Cuenta", "Mover aquí", "Cobrar exacto", "Registrar pago", "Egresos", "Encargos", "+ Nuevo encargo", "Abonar", "Entregar y cobrar saldo", "Cerrar caja", "Respaldar ahora", "Restaurar", "Descargar registro de hoy", "Importar menú", "Descargar plantilla", "Descargar menú actual", "Cargar menú de Delicadas", "Ver vista previa", "Confirmar carga"). La sección (4) Primer día explica cargar el menú de Delicadas o el propio desde CSV, con el formato de `docs/menu/formato-csv.md`, y escribir en la primera apertura de caja el stock de tortillas de maíz con queso, quimbolitos, humitas y tamales.
 
 - [ ] **Step 2: Revisar** que cada botón mencionado existe con ese texto exacto en `src/web` (`grep -r "nombre-del-botón" src/web`).
 
@@ -877,7 +878,7 @@ git add -A && git commit -m "Manual de instalación y uso" && git push origin ma
 
 
 - [ ] `npm run typecheck && npm run build && npm test && npm run e2e`; pegar salida resumida en `docs/BITACORA.md`.
-- [ ] Copiar `build/Cafeteria` a la PC de caja y ejecutar el primer día real con el menú de ejemplo. Anotar resultado en `docs/BITACORA.md`.
+- [ ] Copiar `build/Cafeteria` a la PC de caja y ejecutar el primer día real con el menú de Delicadas cargado desde Admin, pestaña Importar menú. Anotar resultado en `docs/BITACORA.md`.
 - [ ] Actualizar `docs/ESTADO.md`: "Núcleo POS entregado"; siguiente paso: módulo 2 Menú digital, con `superpowers:brainstorming` (modelo `claude-fable-5-1`), entrada: spec del Núcleo, sección 11 ganchos.
 - [ ] `git add -A && git commit -m "Cierre del plan 4: Núcleo POS entregado" && git push origin main`.
 
