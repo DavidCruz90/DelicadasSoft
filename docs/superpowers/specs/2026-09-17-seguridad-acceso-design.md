@@ -120,7 +120,7 @@ Cada ruta de la API declara los roles que la admiten. Regla general: rutas bajo 
 3. El navegador consulta `GET /api/dispositivos/estado` cada pocos segundos.
 4. El administrador, en `/admin` → Dispositivos, ve el código esperando, le pone nombre ("Celular de Ana") y autoriza.
 5. La siguiente consulta del navegador devuelve el token definitivo. Lo guarda y la pantalla continúa sola, sin recargar.
-6. La PC de caja no pasa por esto: las peticiones desde `127.0.0.1`/`::1` se consideran siempre de un dispositivo autorizado. Es lo que evita quedar encerrado sin ningún aparato desde el cual autorizar al primero.
+6. La PC de caja no pasa por esto: las peticiones desde `127.0.0.1`/`::1` se consideran siempre de un dispositivo autorizado. Es lo que evita quedar encerrado sin ningún aparato desde el cual autorizar al primero. **Solo se salta la capa 1: el PIN se exige igual**, y quien tiene acceso físico a esa máquina ya puede apagarla o llevársela, así que no se pierde ninguna protección real.
 
 ### 5.3 Entrar con PIN
 

@@ -14,7 +14,7 @@ Fase 2 de 5. Las demás están en esta misma carpeta, una por fase.
 5. El mesero se queda dentro **todo el día, hasta que caja cierre**. La pantalla de caja se cierra sola si nadie la toca por **30 minutos**; la de administrador, por **15**. No se pierde nada de lo que estabas haciendo: escribes tus números y sigues donde ibas.
 6. La pantalla de la cocina **no pide números**. Solo hace falta que ese monitor esté autorizado.
 7. Un aparato nuevo muestra un **código de 4 números** y no deja hacer nada más, hasta que tú lo autorices desde la pantalla de administrador poniéndole un nombre ("Celular de Ana"). Puedes quitarle el acceso cuando quieras y deja de funcionar al instante.
-8. La computadora de la caja **entra sola**. Es lo que evita quedar encerrado afuera.
+8. La computadora donde corre el sistema (la de la caja) **no necesita autorizarse como aparato**; los 4 números se le piden igual. Es lo que evita quedar trabado el primer día: si ningún aparato estuviera autorizado todavía, no habría desde dónde autorizar al primero. No debilita nada, porque quien está sentado frente a esa computadora ya puede apagarla o llevársela.
 9. Si se olvidan los números del administrador, se arreglan **sentado frente a la computadora de la caja**, nunca por la red.
 10. Cada **cambio de precio** queda anotado: precio viejo, precio nuevo, quién y a qué hora. Hoy eso no queda en ningún lado.
 
