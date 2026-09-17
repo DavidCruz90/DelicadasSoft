@@ -2,48 +2,13 @@ import { asc, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Db } from '../db/conexion';
+import type { Db, Tx } from '../db/conexion';
 import { categoria, producto, movimientoStock, jornada } from '../db/schema';
-import { ErrorNegocio, ErrorTamano, ErrorValidacion, NoEncontrado, exigirMonto, exigirObjeto, exigirUuid } from '../errores';
+import { ENTERO_MAXIMO, ErrorNegocio, ErrorTamano, ErrorValidacion, NoEncontrado, exigirBooleano, exigirEntero, exigirMonto, exigirObjeto, exigirObjetoOpcional, exigirTexto, exigirUuid } from '../errores';
 import { config } from '../config';
 
 export type Categoria = typeof categoria.$inferSelect;
 export type Producto = typeof producto.$inferSelect;
-
-// Tipo del "tx" que recibe el callback de db.transaction(async (tx) => ...):
-// una transacción de Drizzle no es asignable al tipo Db completo (le falta
-// $client, entre otras cosas), pero sí soporta select/insert/update/where
-// igual que Db. Se extrae así en vez de escribirlo a mano para que siga el
-// tipo real de la conexión si cambia.
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
-
-// Tope para columnas integer de PostgreSQL que aquí solo guardan cantidades
-// razonables (stock, orden de aparición): sin este límite, un número enorme
-// (p. ej. 99999999999) desborda el entero de la base y produce un 500 en vez
-// de un 400 claro. Ver docs/APRENDIZAJES.md, entrada de la ronda de arreglo 1
-// de la Tarea 4: el mismo defecto ya se detectó en umbral_stock_bajo.
-const ENTERO_MAXIMO = 1_000_000;
-
-function textoObligatorio(v: unknown, mensajeTipo: string, mensajeVacio: string): string {
-  if (typeof v !== 'string') throw new ErrorValidacion(mensajeTipo);
-  const t = v.trim();
-  if (!t) throw new ErrorValidacion(mensajeVacio);
-  return t;
-}
-
-// stock y orden son columnas integer normales (no numeric): exigimos
-// typeof 'number' en vez de convertir con Number(), porque una cadena como
-// "12" o un booleano no deben colarse en silencio como en el defecto ya
-// corregido en la Tarea 4 (ver APRENDIZAJES.md).
-function enteroEnRango(v: unknown, mensaje: string, maximo = ENTERO_MAXIMO): number {
-  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > maximo) throw new ErrorValidacion(mensaje);
-  return v;
-}
-
-function booleanoObligatorio(v: unknown, mensaje: string): boolean {
-  if (typeof v !== 'boolean') throw new ErrorValidacion(mensaje);
-  return v;
-}
 
 // ---- Categorías
 
@@ -52,34 +17,40 @@ export async function listarCategorias(db: Db) {
 }
 
 export async function crearCategoria(db: Db, datos: { nombre?: unknown; orden?: unknown }) {
-  const nombre = textoObligatorio(
+  const nombre = exigirTexto(
     datos.nombre,
     'El nombre de la categoría debe ser texto',
     'El nombre de la categoría no puede estar vacío',
   );
-  const orden = datos.orden !== undefined ? enteroEnRango(datos.orden, 'El orden debe ser un entero entre 0 y 1000000') : 0;
+  const orden = datos.orden !== undefined ? exigirEntero(datos.orden, 'El orden debe ser un entero entre 0 y 1000000') : 0;
   const [c] = await db.insert(categoria).values({ nombre, orden }).returning();
   return c;
 }
 
 export async function editarCategoria(db: Db, id: string, datos: { nombre?: unknown; orden?: unknown; activa?: unknown }) {
   exigirUuid(id, 'El identificador de la categoría no es válido');
-  const [existe] = await db.select().from(categoria).where(eq(categoria.id, id));
-  if (!existe) throw new NoEncontrado('La categoría no existe');
 
   const cambios: Partial<typeof categoria.$inferInsert> = {};
   if (datos.nombre !== undefined) {
-    cambios.nombre = textoObligatorio(
+    cambios.nombre = exigirTexto(
       datos.nombre,
       'El nombre de la categoría debe ser texto',
       'El nombre de la categoría no puede estar vacío',
     );
   }
-  if (datos.orden !== undefined) cambios.orden = enteroEnRango(datos.orden, 'El orden debe ser un entero entre 0 y 1000000');
-  if (datos.activa !== undefined) cambios.activa = booleanoObligatorio(datos.activa, 'El campo activa debe ser verdadero o falso');
+  if (datos.orden !== undefined) cambios.orden = exigirEntero(datos.orden, 'El orden debe ser un entero entre 0 y 1000000');
+  if (datos.activa !== undefined) cambios.activa = exigirBooleano(datos.activa, 'El estado activo de la categoría debe ser verdadero o falso');
 
-  const [c] = await db.update(categoria).set({ ...cambios, actualizado_en: new Date() }).where(eq(categoria.id, id)).returning();
-  return c;
+  // Patrón único de edición (el mismo que editarProducto y editarMesero):
+  // fila leída con FOR UPDATE dentro de la transacción que la escribe, y
+  // solo los campos recibidos. Sin cambios, se devuelve la fila tal cual.
+  return db.transaction(async (tx) => {
+    const [existe] = await tx.select().from(categoria).where(eq(categoria.id, id)).for('update');
+    if (!existe) throw new NoEncontrado('La categoría no existe');
+    if (Object.keys(cambios).length === 0) return existe;
+    const [c] = await tx.update(categoria).set(cambios).where(eq(categoria.id, id)).returning();
+    return c;
+  });
 }
 
 // ---- Productos
@@ -106,7 +77,7 @@ async function validarProducto(db: Db | Tx, datos: DatosProducto, esNuevo: boole
   }
 
   if (esNuevo || datos.nombre !== undefined) {
-    cambios.nombre = textoObligatorio(
+    cambios.nombre = exigirTexto(
       datos.nombre,
       'El nombre del producto debe ser texto',
       'El nombre del producto no puede estar vacío',
@@ -123,16 +94,16 @@ async function validarProducto(db: Db | Tx, datos: DatosProducto, esNuevo: boole
     cambios.descripcion = t ? t : null;
   }
 
-  if (datos.activo !== undefined) cambios.activo = booleanoObligatorio(datos.activo, 'El campo activo debe ser verdadero o falso');
+  if (datos.activo !== undefined) cambios.activo = exigirBooleano(datos.activo, 'El estado activo del producto debe ser verdadero o falso');
 
-  if (datos.orden !== undefined) cambios.orden = enteroEnRango(datos.orden, 'El orden debe ser un entero entre 0 y 1000000');
+  if (datos.orden !== undefined) cambios.orden = exigirEntero(datos.orden, 'El orden debe ser un entero entre 0 y 1000000');
 
   if (esNuevo || datos.controla_stock !== undefined) {
-    const controlaStock = booleanoObligatorio(datos.controla_stock, 'El campo controla_stock debe ser verdadero o falso');
+    const controlaStock = exigirBooleano(datos.controla_stock, 'El control de stock debe ser verdadero o falso');
     cambios.controla_stock = controlaStock;
     if (controlaStock) {
       if (datos.stock_actual === undefined) throw new ErrorValidacion('Un producto con control de stock necesita stock inicial');
-      cambios.stock_actual = enteroEnRango(datos.stock_actual, 'El stock debe ser un entero entre 0 y 1000000');
+      cambios.stock_actual = exigirEntero(datos.stock_actual, 'El stock debe ser un entero entre 0 y 1000000');
     } else {
       cambios.stock_actual = null;
     }
@@ -212,8 +183,9 @@ export async function editarProducto(db: Db, id: string, datos: DatosProducto) {
     }
 
     const cambios = await validarProducto(tx, datosParaValidar, false);
+    if (Object.keys(cambios).length === 0) return existe;
 
-    const [p] = await tx.update(producto).set({ ...cambios, actualizado_en: new Date() }).where(eq(producto.id, id)).returning();
+    const [p] = await tx.update(producto).set(cambios).where(eq(producto.id, id)).returning();
 
     const activandoControl = datos.controla_stock === true && !existe.controla_stock;
     const desactivandoControl = datos.controla_stock === false && existe.controla_stock;
@@ -241,9 +213,18 @@ export async function editarProducto(db: Db, id: string, datos: DatosProducto) {
   });
 }
 
-export async function ajustarStock(db: Db, productoId: string, datos: { stock?: unknown; motivo?: unknown; origen?: unknown }) {
+// origen no viene del cliente: la ruta HTTP siempre llama con el valor por
+// defecto ('ajuste_manual'), y solo el módulo de jornada (plan 2) pasará
+// 'apertura' desde código propio. Si se leyera del cuerpo, cualquiera podría
+// forjar desde admin un movimiento de apertura sin jornada abierta.
+export async function ajustarStock(
+  db: Db,
+  productoId: string,
+  datos: { stock?: unknown; motivo?: unknown },
+  origen: 'ajuste_manual' | 'apertura' = 'ajuste_manual',
+) {
   exigirUuid(productoId, 'El identificador del producto no es válido');
-  const motivo = textoObligatorio(
+  const motivo = exigirTexto(
     datos.motivo,
     'El motivo del ajuste debe ser texto',
     'El ajuste de stock necesita un motivo',
@@ -251,17 +232,13 @@ export async function ajustarStock(db: Db, productoId: string, datos: { stock?: 
   if (typeof datos.stock !== 'number' || !Number.isInteger(datos.stock)) throw new ErrorValidacion('El stock debe ser un número entero');
   if (datos.stock < 0) throw new ErrorValidacion('El stock no puede ser negativo');
   if (datos.stock > ENTERO_MAXIMO) throw new ErrorValidacion('El stock debe ser un entero entre 0 y 1000000');
-  if (datos.origen !== undefined && datos.origen !== 'ajuste_manual' && datos.origen !== 'apertura') {
-    throw new ErrorValidacion('El origen del ajuste no es válido');
-  }
-  const origen = (datos.origen as 'ajuste_manual' | 'apertura' | undefined) ?? 'ajuste_manual';
   const nuevo = datos.stock;
 
   return db.transaction(async (tx) => {
     const [p] = await tx.select().from(producto).where(eq(producto.id, productoId)).for('update');
     if (!p) throw new NoEncontrado('El producto no existe');
     if (!p.controla_stock) throw new ErrorNegocio('Este producto no controla stock');
-    const [actualizado] = await tx.update(producto).set({ stock_actual: nuevo, actualizado_en: new Date() }).where(eq(producto.id, productoId)).returning();
+    const [actualizado] = await tx.update(producto).set({ stock_actual: nuevo }).where(eq(producto.id, productoId)).returning();
     await insertarMovimientoStock(tx, {
       productoId,
       cantidad: nuevo - (p.stock_actual ?? 0),
@@ -311,15 +288,6 @@ async function borrarFotoAnterior(rutaAnterior: string | null) {
   }
 }
 
-// Un cuerpo ausente (sin Content-Type o sin payload) llega como undefined:
-// se trata como "sin datos" en PATCH, igual que en configuracion y meseros.
-// Un cuerpo presente pero que no sea un objeto (texto, numero, arreglo) sí
-// se rechaza con 400.
-function cuerpoComoObjeto(body: unknown): Record<string, unknown> {
-  if (body === undefined || body === null) return {};
-  return exigirObjeto(body);
-}
-
 export function rutasCatalogo(app: FastifyInstance) {
   app.get('/api/catalogo', async () => obtenerCatalogo(app.db));
 
@@ -331,7 +299,7 @@ export function rutasCatalogo(app: FastifyInstance) {
     return reply.status(201).send(c);
   });
   app.patch<{ Params: { id: string } }>('/api/admin/categorias/:id', async (req) => {
-    const datos = cuerpoComoObjeto(req.body);
+    const datos = exigirObjetoOpcional(req.body);
     const c = await editarCategoria(app.db, req.params.id, datos);
     app.bus.emitir('catalogo');
     return c;
@@ -345,14 +313,15 @@ export function rutasCatalogo(app: FastifyInstance) {
     return reply.status(201).send(p);
   });
   app.patch<{ Params: { id: string } }>('/api/admin/productos/:id', async (req) => {
-    const datos = cuerpoComoObjeto(req.body);
+    const datos = exigirObjetoOpcional(req.body);
     const p = await editarProducto(app.db, req.params.id, datos);
     app.bus.emitir('catalogo');
     return p;
   });
   app.post<{ Params: { id: string } }>('/api/admin/productos/:id/stock', async (req) => {
-    const datos = exigirObjeto(req.body);
-    const p = await ajustarStock(app.db, req.params.id, datos);
+    const { stock, motivo } = exigirObjeto(req.body);
+    // Solo stock y motivo: un "origen" en el cuerpo se ignora a propósito.
+    const p = await ajustarStock(app.db, req.params.id, { stock, motivo });
     app.bus.emitir('stock', { producto_id: p.id, stock_actual: p.stock_actual });
     return p;
   });
@@ -382,7 +351,7 @@ export function rutasCatalogo(app: FastifyInstance) {
     // no existe; con este orden, si algo falla antes de la actualización,
     // la foto anterior sigue intacta y el producto sigue apuntando a ella.
     await writeFile(join(config.carpetaFotos, nombre), buffer);
-    const [p] = await app.db.update(producto).set({ foto: rutaNueva, actualizado_en: new Date() }).where(eq(producto.id, id)).returning();
+    const [p] = await app.db.update(producto).set({ foto: rutaNueva }).where(eq(producto.id, id)).returning();
     if (existe.foto && existe.foto !== rutaNueva) await borrarFotoAnterior(existe.foto);
     app.bus.emitir('catalogo');
     return p;

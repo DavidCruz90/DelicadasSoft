@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { NombreEvento } from '../compartido/eventos';
 
-export type NombreEvento = 'jornada' | 'mesa' | 'stock' | 'catalogo' | 'config';
+export type { NombreEvento };
 export type Evento = { nombre: NombreEvento; datos?: unknown };
 type Suscriptor = (e: Evento) => void;
 

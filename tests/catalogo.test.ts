@@ -323,3 +323,80 @@ test('carrera determinista: un ajuste de stock que se confirma mientras un PATCH
   const suma = movs.reduce((acc: number, m: any) => acc + m.cantidad, 0);
   expect(suma).toBe(0);
 });
+
+// --- Ronda final del plan 1 ---
+
+test('el origen del movimiento no se puede forjar desde el cuerpo: siempre queda ajuste_manual', async () => {
+  const p = await ctx.app.inject({ method: 'POST', url: '/api/admin/productos', payload: { categoria_id: categoriaId, nombre: 'Origen forjado', precio: 1, controla_stock: true, stock_actual: 1 } });
+  const id = p.json().id;
+  const r = await ctx.app.inject({ method: 'POST', url: `/api/admin/productos/${id}/stock`, payload: { stock: 4, motivo: 'Intento de apertura', origen: 'apertura' } });
+  expect(r.statusCode).toBe(200);
+  const movs = await ctx.sql`SELECT origen FROM movimiento_stock WHERE producto_id = ${id} ORDER BY creado_en`;
+  expect(movs.map((m: any) => m.origen)).toEqual(['ajuste_manual', 'ajuste_manual']);
+});
+
+test('carrera determinista: un renombre de categoría confirmado mientras un PATCH {activa:false} espera el bloqueo no se pierde', async () => {
+  const c = await ctx.app.inject({ method: 'POST', url: '/api/admin/categorias', payload: { nombre: 'Postres' } });
+  expect(c.statusCode).toBe(201);
+  const id = c.json().id;
+
+  let patchPromise: Promise<{ statusCode: number; json: () => any }> | null = null;
+  await ctx.sql.begin(async (tx) => {
+    await tx`SELECT id FROM categoria WHERE id = ${id} FOR UPDATE`;
+    patchPromise = Promise.resolve(ctx.app.inject({ method: 'PATCH', url: `/api/admin/categorias/${id}`, payload: { activa: false } }));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await tx`UPDATE categoria SET nombre = 'Postres y dulces', actualizado_en = now() WHERE id = ${id}`;
+  });
+
+  const r = await patchPromise!;
+  expect(r.statusCode).toBe(200);
+  expect(r.json()).toMatchObject({ nombre: 'Postres y dulces', activa: false });
+  const [fila] = await ctx.sql`SELECT nombre, activa FROM categoria WHERE id = ${id}`;
+  expect(fila).toEqual({ nombre: 'Postres y dulces', activa: false });
+});
+
+test('ajustar stock de un producto sin control de stock responde 409', async () => {
+  const p = await ctx.app.inject({ method: 'POST', url: '/api/admin/productos', payload: { categoria_id: categoriaId, nombre: 'Sin stock', precio: 1, controla_stock: false } });
+  const id = p.json().id;
+  const r = await ctx.app.inject({ method: 'POST', url: `/api/admin/productos/${id}/stock`, payload: { stock: 3, motivo: 'x' } });
+  expect(r.statusCode).toBe(409);
+  expect(r.json().error).toBe('Este producto no controla stock');
+});
+
+test('editar un producto con una categoría inexistente responde 404', async () => {
+  const p = await ctx.app.inject({ method: 'POST', url: '/api/admin/productos', payload: { categoria_id: categoriaId, nombre: 'Huérfano', precio: 1, controla_stock: false } });
+  const id = p.json().id;
+  const r = await ctx.app.inject({ method: 'PATCH', url: `/api/admin/productos/${id}`, payload: { categoria_id: '00000000-0000-0000-0000-000000000000' } });
+  expect(r.statusCode).toBe(404);
+  expect(r.json().error).toBe('La categoría no existe');
+});
+
+test('el catálogo excluye productos inactivos', async () => {
+  const p = await ctx.app.inject({ method: 'POST', url: '/api/admin/productos', payload: { categoria_id: categoriaId, nombre: 'Descontinuado', precio: 1, controla_stock: false } });
+  const id = p.json().id;
+  const r = await ctx.app.inject({ method: 'PATCH', url: `/api/admin/productos/${id}`, payload: { activo: false } });
+  expect(r.statusCode).toBe(200);
+  const cat = await ctx.app.inject({ method: 'GET', url: '/api/catalogo' });
+  const nombres = cat.json().categorias.flatMap((c: any) => c.productos.map((p: any) => p.nombre));
+  expect(nombres).not.toContain('Descontinuado');
+  const admin = await ctx.app.inject({ method: 'GET', url: '/api/admin/productos' });
+  expect(admin.json().some((p: any) => p.id === id)).toBe(true);
+});
+
+test('PATCH de producto mueve actualizado_en sin que el módulo lo escriba a mano', async () => {
+  const p = await ctx.app.inject({ method: 'POST', url: '/api/admin/productos', payload: { categoria_id: categoriaId, nombre: 'Con fecha', precio: 1, controla_stock: false } });
+  const antes = new Date(p.json().actualizado_en).getTime();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const r = await ctx.app.inject({ method: 'PATCH', url: `/api/admin/productos/${p.json().id}`, payload: { nombre: 'Con fecha nueva' } });
+  expect(new Date(r.json().actualizado_en).getTime()).toBeGreaterThan(antes);
+});
+
+test('PATCH sin cuerpo de categoría y de producto responde 200 sin cambios', async () => {
+  const c = await ctx.app.inject({ method: 'PATCH', url: `/api/admin/categorias/${categoriaId}` });
+  expect(c.statusCode).toBe(200);
+  expect(c.json().nombre).toBe('Sandwiches');
+  const p = await ctx.app.inject({ method: 'POST', url: '/api/admin/productos', payload: { categoria_id: categoriaId, nombre: 'Intacto', precio: 1, controla_stock: false } });
+  const r = await ctx.app.inject({ method: 'PATCH', url: `/api/admin/productos/${p.json().id}` });
+  expect(r.statusCode).toBe(200);
+  expect(r.json().nombre).toBe('Intacto');
+});

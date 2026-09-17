@@ -88,3 +88,49 @@ test('crear dos meseros con el mismo nombre en paralelo solo deja uno activo', a
   expect(estados).toEqual([201, 409]);
   for (const r of [a, b]) expect([201, 409]).toContain(r.statusCode);
 });
+
+// --- Ronda final del plan 1 ---
+
+test('carrera determinista: un renombre confirmado mientras un PATCH {activo:false} espera el bloqueo de la fila no se pierde', async () => {
+  const c = await ctx.app.inject({ method: 'POST', url: '/api/admin/meseros', payload: { nombre: 'Elena' } });
+  expect(c.statusCode).toBe(201);
+  const id = c.json().id;
+
+  let patchPromise: Promise<{ statusCode: number; json: () => any }> | null = null;
+
+  // Mismo método que la carrera de stock en catalogo.test.ts: una
+  // transacción externa toma el bloqueo de la fila, se lanza el PATCH sin
+  // esperarlo, se renombra al mesero dentro de la transacción externa y se
+  // confirma. Con el código viejo (lectura sin bloqueo + escritura de todos
+  // los campos), el PATCH leía "Elena" antes del renombre, esperaba en el
+  // UPDATE y al retomar volvía a escribir "Elena": el renombre se perdía.
+  await ctx.sql.begin(async (tx) => {
+    await tx`SELECT id FROM mesero WHERE id = ${id} FOR UPDATE`;
+    patchPromise = Promise.resolve(ctx.app.inject({ method: 'PATCH', url: `/api/admin/meseros/${id}`, payload: { activo: false } }));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await tx`UPDATE mesero SET nombre = 'Elena Pérez', actualizado_en = now() WHERE id = ${id}`;
+  });
+
+  const r = await patchPromise!;
+  expect(r.statusCode).toBe(200);
+  expect(r.json()).toMatchObject({ nombre: 'Elena Pérez', activo: false });
+  const [fila] = await ctx.sql`SELECT nombre, activo FROM mesero WHERE id = ${id}`;
+  expect(fila).toEqual({ nombre: 'Elena Pérez', activo: false });
+});
+
+test('PATCH mueve actualizado_en sin que el módulo lo escriba a mano', async () => {
+  const c = await ctx.app.inject({ method: 'POST', url: '/api/admin/meseros', payload: { nombre: 'Fabián' } });
+  const id = c.json().id;
+  const antes = new Date(c.json().actualizado_en).getTime();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const r = await ctx.app.inject({ method: 'PATCH', url: `/api/admin/meseros/${id}`, payload: { nombre: 'Fabián R.' } });
+  expect(r.statusCode).toBe(200);
+  expect(new Date(r.json().actualizado_en).getTime()).toBeGreaterThan(antes);
+});
+
+test('PATCH sin cuerpo responde 200 con el mesero sin cambios', async () => {
+  const c = await ctx.app.inject({ method: 'POST', url: '/api/admin/meseros', payload: { nombre: 'Gloria' } });
+  const r = await ctx.app.inject({ method: 'PATCH', url: `/api/admin/meseros/${c.json().id}` });
+  expect(r.statusCode).toBe(200);
+  expect(r.json()).toMatchObject({ nombre: 'Gloria', activo: true });
+});

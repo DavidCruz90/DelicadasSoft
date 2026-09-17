@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db/conexion';
 import { configuracion } from '../db/schema';
-import { ErrorValidacion, exigirObjeto } from '../errores';
+import { ErrorValidacion, exigirBooleano, exigirEntero, exigirMonto, exigirObjetoOpcional, exigirTexto } from '../errores';
 
 export type Configuracion = typeof configuracion.$inferSelect;
 
@@ -26,84 +26,61 @@ export async function obtenerConfiguracion(db: Db): Promise<Configuracion> {
 export type CamposEditables = Pick<Configuracion,
   'nombre_local' | 'simbolo_moneda' | 'cantidad_mesas' | 'propina_sugerida_pct' | 'umbral_stock_bajo' | 'cocina_activa' | 'sonido_cocina' | 'permitir_items_libres'>;
 
-const INTERRUPTORES: (keyof CamposEditables)[] = ['cocina_activa', 'sonido_cocina', 'permitir_items_libres'];
+// Los mensajes nombran cada interruptor como lo ve el dueño en la pantalla,
+// no por su nombre de columna.
+const INTERRUPTORES: Record<'cocina_activa' | 'sonido_cocina' | 'permitir_items_libres', string> = {
+  cocina_activa: 'La cocina activa debe ser verdadero o falso',
+  sonido_cocina: 'El sonido de cocina debe ser verdadero o falso',
+  permitir_items_libres: 'Permitir ítems libres debe ser verdadero o falso',
+};
 const UMBRAL_STOCK_MAXIMO = 1_000_000;
 const SIMBOLO_MONEDA_LARGO_MAXIMO = 5;
-const PATRON_NUMERO_LIMPIO = /^\d+(\.\d+)?$/;
-
-// Exige un texto no vacio (y lo recorta) para un campo de configuracion.
-// typeof descarta numeros, booleanos, objetos y null: "null" no debe colarse
-// como el texto literal "null" via String(null).
-function limpiarTexto(valor: unknown, nombreCampo: string): string {
-  if (typeof valor !== 'string') throw new ErrorValidacion(`El campo ${nombreCampo} debe ser texto`);
-  const limpio = valor.trim();
-  if (!limpio) throw new ErrorValidacion(`El campo ${nombreCampo} no puede estar vacío`);
-  return limpio;
-}
-
-// La propina admite un numero o una cadena numerica limpia (sin simbolos ni
-// espacios internos), nunca un booleano: Number(true) da 1 y colaria sin
-// esta comprobacion de tipo.
-function limpiarNumero(valor: unknown, nombreCampo: string): number {
-  if (typeof valor === 'number') {
-    if (Number.isNaN(valor)) throw new ErrorValidacion(`El campo ${nombreCampo} debe ser un número`);
-    return valor;
-  }
-  if (typeof valor === 'string' && PATRON_NUMERO_LIMPIO.test(valor.trim())) return Number(valor.trim());
-  throw new ErrorValidacion(`El campo ${nombreCampo} debe ser un número`);
-}
+const PROPINA_MAXIMA_PCT = 100;
 
 export async function actualizarConfiguracion(db: Db, cambios: Partial<Record<keyof CamposEditables, unknown>>): Promise<Configuracion> {
   const actual = await asegurarConfiguracion(db);
   const limpio: Partial<CamposEditables> = {};
 
-  if (cambios.nombre_local !== undefined) limpio.nombre_local = limpiarTexto(cambios.nombre_local, 'nombre_local');
+  if (cambios.nombre_local !== undefined) {
+    limpio.nombre_local = exigirTexto(cambios.nombre_local, 'El nombre del local debe ser texto', 'El nombre del local no puede estar vacío');
+  }
   if (cambios.simbolo_moneda !== undefined) {
-    const t = limpiarTexto(cambios.simbolo_moneda, 'simbolo_moneda');
+    const t = exigirTexto(cambios.simbolo_moneda, 'El símbolo de moneda debe ser texto', 'El símbolo de moneda no puede estar vacío');
     if (t.length > SIMBOLO_MONEDA_LARGO_MAXIMO) throw new ErrorValidacion(`El símbolo de moneda no puede tener más de ${SIMBOLO_MONEDA_LARGO_MAXIMO} caracteres`);
     limpio.simbolo_moneda = t;
   }
-  for (const campo of INTERRUPTORES) {
-    const valor = cambios[campo];
-    if (valor === undefined) continue;
-    if (typeof valor !== 'boolean') throw new ErrorValidacion(`El campo ${campo} debe ser verdadero o falso`);
-    (limpio as any)[campo] = valor;
+  for (const campo of Object.keys(INTERRUPTORES) as (keyof typeof INTERRUPTORES)[]) {
+    if (cambios[campo] !== undefined) limpio[campo] = exigirBooleano(cambios[campo], INTERRUPTORES[campo]);
   }
   if (cambios.cantidad_mesas !== undefined) {
-    const n = cambios.cantidad_mesas;
-    if (!Number.isInteger(n) || (n as number) < 1 || (n as number) > 200)
-      throw new ErrorValidacion('La cantidad de mesas debe estar entre 1 y 200');
-    limpio.cantidad_mesas = n as number;
+    limpio.cantidad_mesas = exigirEntero(cambios.cantidad_mesas, 'La cantidad de mesas debe estar entre 1 y 200', { minimo: 1, maximo: 200 });
   }
   if (cambios.umbral_stock_bajo !== undefined) {
-    const n = cambios.umbral_stock_bajo;
-    if (!Number.isInteger(n) || (n as number) < 0 || (n as number) > UMBRAL_STOCK_MAXIMO)
-      throw new ErrorValidacion(`El umbral de stock bajo debe ser un entero entre 0 y ${UMBRAL_STOCK_MAXIMO}`);
-    limpio.umbral_stock_bajo = n as number;
+    limpio.umbral_stock_bajo = exigirEntero(cambios.umbral_stock_bajo, `El umbral de stock bajo debe ser un entero entre 0 y ${UMBRAL_STOCK_MAXIMO}`, { maximo: UMBRAL_STOCK_MAXIMO });
   }
   if (cambios.propina_sugerida_pct !== undefined) {
-    const n = limpiarNumero(cambios.propina_sugerida_pct, 'propina_sugerida_pct');
-    if (n < 0 || n > 100) throw new ErrorValidacion('La propina sugerida debe estar entre 0 y 100');
-    limpio.propina_sugerida_pct = n.toFixed(2);
+    // Pasa por exigirMonto como todo numero con dos decimales: numero o
+    // cadena numerica limpia, nunca booleano, y un tercer decimal (12.555)
+    // se rechaza en vez de redondearse en silencio.
+    limpio.propina_sugerida_pct = exigirMonto(
+      cambios.propina_sugerida_pct,
+      `La propina sugerida debe ser un número entre 0 y ${PROPINA_MAXIMA_PCT}, con hasta 2 decimales`,
+      { maximo: PROPINA_MAXIMA_PCT },
+    );
   }
 
-  const [actualizada] = await db.update(configuracion).set({ ...limpio, actualizado_en: new Date() }).where(eq(configuracion.id, actual.id)).returning();
+  // Drizzle rechaza un UPDATE sin columnas ("No values to set"): sin cambios
+  // se devuelve la fila actual sin escribir nada.
+  if (Object.keys(limpio).length === 0) return actual;
+  const [actualizada] = await db.update(configuracion).set(limpio).where(eq(configuracion.id, actual.id)).returning();
   return actualizada;
-}
-
-// Un cuerpo ausente (sin Content-Type o sin payload) llega como undefined:
-// se trata como "sin cambios" y la peticion responde 200 sin modificar nada.
-// Un cuerpo presente pero que no sea un objeto (texto, numero, arreglo) si
-// se rechaza con 400.
-function cuerpoComoObjeto(body: unknown): Record<string, unknown> {
-  if (body === undefined || body === null) return {};
-  return exigirObjeto(body);
 }
 
 export function rutasConfiguracion(app: FastifyInstance) {
   app.get('/api/admin/configuracion', async () => obtenerConfiguracion(app.db));
   app.patch('/api/admin/configuracion', async (req) => {
-    const cambios = cuerpoComoObjeto(req.body);
+    // Sin cuerpo: responde 200 sin modificar nada.
+    const cambios = exigirObjetoOpcional(req.body);
     const r = await actualizarConfiguracion(app.db, cambios);
     app.bus.emitir('config');
     return r;

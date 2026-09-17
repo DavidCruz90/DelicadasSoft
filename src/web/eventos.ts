@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api } from './api';
+import type { NombreEvento } from '../compartido/eventos';
 
-export type NombreEvento = 'jornada' | 'mesa' | 'stock' | 'catalogo' | 'config';
+export type { NombreEvento };
 
 // Si pasan 60 s sin recibir nada (ni un evento de negocio ni el latido que
 // el servidor manda cada 25 s), la conexion se considera muerta aunque el
