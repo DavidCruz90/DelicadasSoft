@@ -5,7 +5,8 @@ const URL = process.env.DATABASE_URL_TEST ?? 'postgres://cafeteria:cafeteria@127
 
 const TABLAS = [
   'abono', 'encargo_item', 'encargo', 'pago', 'pedido_item', 'ronda', 'cuenta', 'egreso',
-  'pedido', 'movimiento_stock', 'jornada', 'producto', 'categoria', 'cliente', 'mesero', 'configuracion',
+  'pedido', 'movimiento_stock', 'jornada', 'cambio_precio', 'producto', 'categoria', 'cliente',
+  'intento_fallido', 'sesion', 'dispositivo', 'usuario', 'configuracion',
 ];
 
 export async function prepararBaseDePrueba() {

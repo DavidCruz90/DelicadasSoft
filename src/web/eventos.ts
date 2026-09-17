@@ -53,7 +53,7 @@ export function useEventos(nombres: NombreEvento[], callback: (nombre: NombreEve
   return conectado;
 }
 
-export type Estado = { configuracion: any; jornada: any | null; meseros: { id: string; nombre: string }[] };
+export type Estado = { configuracion: any; jornada: any | null };
 
 export function useEstado() {
   const [estado, setEstado] = useState<Estado | null>(null);

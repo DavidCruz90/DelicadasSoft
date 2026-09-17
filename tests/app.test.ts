@@ -3,19 +3,18 @@ import { test, expect, beforeAll, afterAll } from 'vitest';
 import { crearAppDePrueba } from './ayuda/app';
 import { crearApp } from '../src/servidor/app';
 import { ErrorNegocio, ErrorValidacion, NoEncontrado } from '../src/servidor/errores';
-import { mesero } from '../src/servidor/db/schema';
 
 let ctx: Awaited<ReturnType<typeof crearAppDePrueba>>;
 beforeAll(async () => { ctx = await crearAppDePrueba(); });
 afterAll(async () => { await ctx.app.close(); await ctx.sql.end(); });
 
-test('GET /api/estado devuelve configuracion, jornada nula y meseros vacios', async () => {
+test('GET /api/estado devuelve configuracion y jornada nula, sin lista de usuarios', async () => {
   const r = await ctx.app.inject({ method: 'GET', url: '/api/estado' });
   expect(r.statusCode).toBe(200);
   const cuerpo = r.json();
   expect(cuerpo.configuracion.nombre_local).toBe('Cafetería');
   expect(cuerpo.jornada).toBeNull();
-  expect(cuerpo.meseros).toEqual([]);
+  expect('meseros' in cuerpo).toBe(false);
 });
 
 test('una ruta inexistente responde 404 con {error}', async () => {
@@ -48,12 +47,6 @@ test('un suscriptor que lanza no rompe emitir ni impide avisar al resto', () => 
   cancelarRoto();
   cancelarSano();
   expect(recibidos).toEqual(['config']);
-});
-
-test('un mesero inactivo no aparece en /api/estado', async () => {
-  await ctx.db.insert(mesero).values({ nombre: 'Mesero inactivo', activo: false });
-  const r = await ctx.app.inject({ method: 'GET', url: '/api/estado' });
-  expect(r.json().meseros).toEqual([]);
 });
 
 test('el manejador de errores traduce cada tipo a su codigo HTTP y cuerpo {error}', async () => {

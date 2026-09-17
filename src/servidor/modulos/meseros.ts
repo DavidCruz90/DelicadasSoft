@@ -1,11 +1,11 @@
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Db, Tx } from '../db/conexion';
-import { mesero } from '../db/schema';
+import { usuario } from '../db/schema';
 import { ErrorNegocio, NoEncontrado, exigirBooleano, exigirObjetoOpcional, exigirTexto, exigirUuid } from '../errores';
 
 export async function listarMeseros(db: Db) {
-  return db.select().from(mesero).orderBy(mesero.nombre);
+  return db.select().from(usuario).orderBy(usuario.nombre);
 }
 
 // Comprueba en la aplicacion que ningun otro mesero activo tenga el mismo
@@ -15,8 +15,8 @@ export async function listarMeseros(db: Db) {
 // dos peticiones simultaneas, y traducirConflictoNombre() convierte su
 // violacion en un 409 en vez de un 500.
 async function verificarNombreUnico(db: Db | Tx, nombre: string, exceptoId?: string) {
-  const [dup] = await db.select({ id: mesero.id }).from(mesero)
-    .where(sql`lower(${mesero.nombre}) = lower(${nombre}) AND ${mesero.activo} = true ${exceptoId ? sql`AND ${mesero.id} <> ${exceptoId}` : sql``}`);
+  const [dup] = await db.select({ id: usuario.id }).from(usuario)
+    .where(sql`lower(${usuario.nombre}) = lower(${nombre}) AND ${usuario.activo} = true ${exceptoId ? sql`AND ${usuario.id} <> ${exceptoId}` : sql``}`);
   if (dup) throw new ErrorNegocio('Ya existe un mesero con ese nombre');
 }
 
@@ -29,7 +29,7 @@ function limpiarNombre(valor: unknown): string {
 
 function traducirConflictoNombre(err: unknown): unknown {
   const e = err as { code?: string; constraint_name?: string } | null;
-  if (e && e.code === '23505' && e.constraint_name === 'mesero_nombre_activo_unico') {
+  if (e && e.code === '23505' && e.constraint_name === 'usuario_nombre_activo_unico') {
     return new ErrorNegocio('Ya existe un mesero con ese nombre');
   }
   return err;
@@ -39,7 +39,7 @@ export async function crearMesero(db: Db, datos: { nombre?: unknown }) {
   const nombre = limpiarNombre(datos.nombre);
   await verificarNombreUnico(db, nombre);
   try {
-    const [m] = await db.insert(mesero).values({ nombre }).returning();
+    const [m] = await db.insert(usuario).values({ nombre }).returning();
     return m;
   } catch (err) {
     throw traducirConflictoNombre(err);
@@ -49,7 +49,7 @@ export async function crearMesero(db: Db, datos: { nombre?: unknown }) {
 export async function editarMesero(db: Db, id: string, datos: { nombre?: unknown; activo?: unknown }) {
   exigirUuid(id, 'El identificador del mesero no es válido');
 
-  const cambios: Partial<typeof mesero.$inferInsert> = {};
+  const cambios: Partial<typeof usuario.$inferInsert> = {};
   if (datos.nombre !== undefined) cambios.nombre = limpiarNombre(datos.nombre);
   if (datos.activo !== undefined) cambios.activo = exigirBooleano(datos.activo, 'El estado activo del mesero debe ser verdadero o falso');
 
@@ -60,7 +60,7 @@ export async function editarMesero(db: Db, id: string, datos: { nombre?: unknown
   // que esperaba el bloqueo detrás de un renombre ya confirmado volvía a
   // escribir el nombre viejo al retomar.
   return db.transaction(async (tx) => {
-    const [existente] = await tx.select().from(mesero).where(eq(mesero.id, id)).for('update');
+    const [existente] = await tx.select().from(usuario).where(eq(usuario.id, id)).for('update');
     if (!existente) throw new NoEncontrado('El mesero no existe');
 
     // El nombre unico solo aplica entre activos: si el resultado final de
@@ -73,7 +73,7 @@ export async function editarMesero(db: Db, id: string, datos: { nombre?: unknown
     if (Object.keys(cambios).length === 0) return existente;
 
     try {
-      const [m] = await tx.update(mesero).set(cambios).where(eq(mesero.id, id)).returning();
+      const [m] = await tx.update(usuario).set(cambios).where(eq(usuario.id, id)).returning();
       return m;
     } catch (err) {
       throw traducirConflictoNombre(err);

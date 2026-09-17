@@ -18,8 +18,6 @@ test('crear, listar y desactivar meseros', async () => {
   expect(e.json().activo).toBe(false);
   const l = await ctx.app.inject({ method: 'GET', url: '/api/admin/meseros' });
   expect(l.json()).toHaveLength(1);
-  const estado = await ctx.app.inject({ method: 'GET', url: '/api/estado' });
-  expect(estado.json().meseros).toHaveLength(0);
 });
 
 test('PATCH de mesero inexistente responde 404', async () => {
@@ -75,7 +73,7 @@ test('POST sin cuerpo responde 400 por falta de nombre, no 500', async () => {
 });
 
 test('el indice unico parcial de mesero activo existe en la base', async () => {
-  const filas = await ctx.sql`SELECT indexname FROM pg_indexes WHERE tablename = 'mesero' AND indexname = 'mesero_nombre_activo_unico'`;
+  const filas = await ctx.sql`SELECT indexname FROM pg_indexes WHERE tablename = 'usuario' AND indexname = 'usuario_nombre_activo_unico'`;
   expect(filas).toHaveLength(1);
 });
 
@@ -105,16 +103,16 @@ test('carrera determinista: un renombre confirmado mientras un PATCH {activo:fal
   // los campos), el PATCH leía "Elena" antes del renombre, esperaba en el
   // UPDATE y al retomar volvía a escribir "Elena": el renombre se perdía.
   await ctx.sql.begin(async (tx) => {
-    await tx`SELECT id FROM mesero WHERE id = ${id} FOR UPDATE`;
+    await tx`SELECT id FROM usuario WHERE id = ${id} FOR UPDATE`;
     patchPromise = Promise.resolve(ctx.app.inject({ method: 'PATCH', url: `/api/admin/meseros/${id}`, payload: { activo: false } }));
     await new Promise((resolve) => setTimeout(resolve, 150));
-    await tx`UPDATE mesero SET nombre = 'Elena Pérez', actualizado_en = now() WHERE id = ${id}`;
+    await tx`UPDATE usuario SET nombre = 'Elena Pérez', actualizado_en = now() WHERE id = ${id}`;
   });
 
   const r = await patchPromise!;
   expect(r.statusCode).toBe(200);
   expect(r.json()).toMatchObject({ nombre: 'Elena Pérez', activo: false });
-  const [fila] = await ctx.sql`SELECT nombre, activo FROM mesero WHERE id = ${id}`;
+  const [fila] = await ctx.sql`SELECT nombre, activo FROM usuario WHERE id = ${id}`;
   expect(fila).toEqual({ nombre: 'Elena Pérez', activo: false });
 });
 

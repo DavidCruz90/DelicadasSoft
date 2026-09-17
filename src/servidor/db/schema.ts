@@ -20,6 +20,8 @@ export const tipoEgreso = pgEnum('tipo_egreso', ['compra_ingredientes', 'devoluc
 export const tipoIdentificacion = pgEnum('tipo_identificacion', ['cedula', 'ruc', 'pasaporte', 'consumidor_final']);
 export const estadoEncargo = pgEnum('estado_encargo', ['pendiente', 'entregado', 'cancelado']);
 export const estadoAbono = pgEnum('estado_abono', ['pendiente', 'aplicado', 'devuelto']);
+export const rolUsuario = pgEnum('rol_usuario', ['mesero', 'caja', 'admin']);
+export const estadoDispositivo = pgEnum('estado_dispositivo', ['pendiente', 'autorizado', 'revocado']);
 
 export const configuracion = pgTable('configuracion', {
   id: id(),
@@ -34,10 +36,57 @@ export const configuracion = pgTable('configuracion', {
   ...tiempos(),
 });
 
-export const mesero = pgTable('mesero', {
+export const usuario = pgTable('usuario', {
   id: id(),
   nombre: text('nombre').notNull(),
+  rol: rolUsuario('rol').notNull().default('mesero'),
+  // Nulo mientras no tenga PIN (los meseros que existían antes de la fase 2):
+  // no aparece en la lista de entrada y no puede iniciar sesión.
+  pin_hash: text('pin_hash'),
   activo: boolean('activo').notNull().default(true),
+  ...tiempos(),
+});
+
+export const dispositivo = pgTable('dispositivo', {
+  id: id(),
+  nombre: text('nombre'),
+  // 4 dígitos mientras está pendiente; se vacía al autorizar. Único entre
+  // pendientes por el índice parcial dispositivo_codigo_pendiente_unico.
+  codigo: text('codigo'),
+  token_hash: text('token_hash').notNull(),
+  estado: estadoDispositivo('estado').notNull().default('pendiente'),
+  descripcion: text('descripcion').notNull().default(''),
+  solicitado_en: timestamp('solicitado_en', { withTimezone: true }).notNull().defaultNow(),
+  autorizado_en: timestamp('autorizado_en', { withTimezone: true }),
+  autorizado_por: uuid('autorizado_por').references(() => usuario.id),
+  ultimo_uso_en: timestamp('ultimo_uso_en', { withTimezone: true }),
+  intentos_fallidos: integer('intentos_fallidos').notNull().default(0),
+  bloqueado_hasta: timestamp('bloqueado_hasta', { withTimezone: true }),
+  ...tiempos(),
+});
+
+export const sesion = pgTable('sesion', {
+  id: id(),
+  usuario_id: uuid('usuario_id').notNull().references(() => usuario.id),
+  // Nulo cuando la sesión se abrió desde la PC de caja (127.0.0.1), que no
+  // pasa por la lista blanca de dispositivos.
+  dispositivo_id: uuid('dispositivo_id').references(() => dispositivo.id),
+  token_hash: text('token_hash').notNull(),
+  ultimo_uso_en: timestamp('ultimo_uso_en', { withTimezone: true }).notNull().defaultNow(),
+  // Nulo para rol mesero (no expira por inactividad).
+  expira_en: timestamp('expira_en', { withTimezone: true }),
+  cerrada_en: timestamp('cerrada_en', { withTimezone: true }),
+  ...tiempos(),
+});
+
+// "creada_en" de la spec 4.3 es creado_en de tiempos(); "ocurrido_en" de la
+// spec 4.4 es creado_en de tiempos(). No se duplican columnas.
+export const intentoFallido = pgTable('intento_fallido', {
+  id: id(),
+  // Nulo cuando el intento vino de la PC de caja.
+  dispositivo_id: uuid('dispositivo_id').references(() => dispositivo.id),
+  // Nulo cuando el usuario_id que se intentó no existe.
+  usuario_id: uuid('usuario_id').references(() => usuario.id),
   ...tiempos(),
 });
 
@@ -60,6 +109,15 @@ export const producto = pgTable('producto', {
   controla_stock: boolean('controla_stock').notNull().default(false),
   stock_actual: integer('stock_actual'),
   orden: integer('orden').notNull().default(0),
+  ...tiempos(),
+});
+
+export const cambioPrecio = pgTable('cambio_precio', {
+  id: id(),
+  producto_id: uuid('producto_id').notNull().references(() => producto.id),
+  precio_anterior: monto('precio_anterior').notNull(),
+  precio_nuevo: monto('precio_nuevo').notNull(),
+  usuario_id: uuid('usuario_id').notNull().references(() => usuario.id),
   ...tiempos(),
 });
 
@@ -118,7 +176,7 @@ export const pedido = pgTable('pedido', {
   jornada_id: uuid('jornada_id').notNull().references(() => jornada.id),
   numero_mesa: integer('numero_mesa').notNull().default(0),
   numero: integer('numero').notNull(),
-  mesero_id: uuid('mesero_id').references(() => mesero.id),
+  usuario_id: uuid('usuario_id').references(() => usuario.id),
   origen: origenPedido('origen').notNull().default('mesa'),
   encargo_id: uuid('encargo_id').references(() => encargo.id),
   estado: estadoPedido('estado').notNull().default('abierto'),

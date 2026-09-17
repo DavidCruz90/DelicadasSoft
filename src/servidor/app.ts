@@ -11,7 +11,7 @@ import { crearBusEventos, rutaEventos, type BusEventos } from './eventos';
 import { obtenerConfiguracion, rutasConfiguracion } from './modulos/configuracion';
 import { rutasMeseros } from './modulos/meseros';
 import { rutasCatalogo } from './modulos/catalogo';
-import { jornada, mesero } from './db/schema';
+import { jornada } from './db/schema';
 
 declare module 'fastify' {
   interface FastifyInstance { db: Db; bus: BusEventos; }
@@ -82,11 +82,9 @@ export async function crearApp({ db }: { db: Db }) {
 
   app.get('/api/estado', async () => {
     const [abierta] = await db.select().from(jornada).where(isNull(jornada.cerrada_en)).limit(1);
-    const meseros = await db.select().from(mesero).orderBy(mesero.nombre);
     return {
       configuracion: await obtenerConfiguracion(db),
       jornada: abierta ?? null,
-      meseros: meseros.filter((m) => m.activo),
     };
   });
   rutaEventos(app);

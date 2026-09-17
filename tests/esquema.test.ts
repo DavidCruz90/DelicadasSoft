@@ -7,10 +7,10 @@ let ctx: Awaited<ReturnType<typeof prepararBaseDePrueba>>;
 beforeAll(async () => { ctx = await prepararBaseDePrueba(); });
 afterAll(async () => { await ctx.sql.end(); });
 
-test('las 16 tablas existen', async () => {
+test('las 20 tablas existen', async () => {
   const filas = await ctx.sql`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name`;
   const nombres = filas.map((f) => f.table_name);
-  for (const t of ['configuracion','mesero','categoria','producto','movimiento_stock','jornada','pedido','cuenta','ronda','pedido_item','pago','egreso','cliente','encargo','encargo_item','abono']) {
+  for (const t of ['configuracion','usuario','dispositivo','sesion','intento_fallido','categoria','producto','cambio_precio','movimiento_stock','jornada','pedido','cuenta','ronda','pedido_item','pago','egreso','cliente','encargo','encargo_item','abono']) {
     expect(nombres).toContain(t);
   }
 });
