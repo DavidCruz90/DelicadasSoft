@@ -4,7 +4,7 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Db } from '../db/conexion';
 import { categoria, producto, movimientoStock, jornada } from '../db/schema';
-import { ErrorNegocio, ErrorValidacion, NoEncontrado, exigirMonto, exigirObjeto, exigirUuid } from '../errores';
+import { ErrorNegocio, ErrorTamano, ErrorValidacion, NoEncontrado, exigirMonto, exigirObjeto, exigirUuid } from '../errores';
 import { config } from '../config';
 
 export type Categoria = typeof categoria.$inferSelect;
@@ -95,7 +95,7 @@ type DatosProducto = {
   orden?: unknown;
 };
 
-async function validarProducto(db: Db, datos: DatosProducto, esNuevo: boolean) {
+async function validarProducto(db: Db | Tx, datos: DatosProducto, esNuevo: boolean) {
   const cambios: Partial<typeof producto.$inferInsert> = {};
 
   if (esNuevo || datos.categoria_id !== undefined) {
@@ -186,25 +186,33 @@ export async function crearProducto(db: Db, datos: DatosProducto) {
 
 export async function editarProducto(db: Db, id: string, datos: DatosProducto) {
   exigirUuid(id, 'El identificador del producto no es válido');
-  const [existe] = await db.select().from(producto).where(eq(producto.id, id));
-  if (!existe) throw new NoEncontrado('El producto no existe');
 
-  // Guarda del brief, restaurada: si el producto ya controla stock, tocar
-  // stock_actual por esta vía (incluso reafirmando controla_stock: true) es
-  // la puerta trasera al ajuste con motivo; se bloquea siempre. El único
-  // caso permitido es reafirmar controla_stock: true SIN mandar stock_actual,
-  // que conserva el valor existente sin registrar ningún movimiento.
-  if (datos.controla_stock === true && existe.controla_stock && datos.stock_actual !== undefined) {
-    throw new ErrorValidacion('Para cambiar el stock usa el ajuste de stock con motivo');
-  }
-  const datosParaValidar: DatosProducto = { ...datos };
-  if (datos.controla_stock === true && existe.controla_stock) {
-    datosParaValidar.stock_actual = existe.stock_actual;
-  }
-
-  const cambios = await validarProducto(db, datosParaValidar, false);
-
+  // La lectura del producto existente (para decidir la guarda de abajo y
+  // para calcular el movimiento de desactivación) va con SELECT ... FOR
+  // UPDATE dentro de la misma transacción que la escritura, igual que en
+  // ajustarStock: si se leyera fuera de la transacción, un ajuste de stock
+  // concurrente podría colarse entre la lectura y la escritura, y el
+  // movimiento de desactivación quedaría calculado sobre un stock_actual ya
+  // obsoleto (la suma de movimientos dejaría de cuadrar con el stock real).
   return db.transaction(async (tx) => {
+    const [existe] = await tx.select().from(producto).where(eq(producto.id, id)).for('update');
+    if (!existe) throw new NoEncontrado('El producto no existe');
+
+    // Guarda del brief, restaurada: si el producto ya controla stock, tocar
+    // stock_actual por esta vía (incluso reafirmando controla_stock: true) es
+    // la puerta trasera al ajuste con motivo; se bloquea siempre. El único
+    // caso permitido es reafirmar controla_stock: true SIN mandar stock_actual,
+    // que conserva el valor existente sin registrar ningún movimiento.
+    if (datos.controla_stock === true && existe.controla_stock && datos.stock_actual !== undefined) {
+      throw new ErrorValidacion('Para cambiar el stock usa el ajuste de stock con motivo');
+    }
+    const datosParaValidar: DatosProducto = { ...datos };
+    if (datos.controla_stock === true && existe.controla_stock) {
+      datosParaValidar.stock_actual = existe.stock_actual;
+    }
+
+    const cambios = await validarProducto(tx, datosParaValidar, false);
+
     const [p] = await tx.update(producto).set({ ...cambios, actualizado_en: new Date() }).where(eq(producto.id, id)).returning();
 
     const activandoControl = datos.controla_stock === true && !existe.controla_stock;
@@ -356,14 +364,26 @@ export function rutasCatalogo(app: FastifyInstance) {
     if (!archivo || archivo.fieldname !== 'foto') throw new ErrorValidacion('Falta el archivo de foto');
     const ext = EXTENSIONES[archivo.mimetype];
     if (!ext) throw new ErrorValidacion('La foto debe ser JPG, PNG o WEBP');
-    const buffer = await archivo.toBuffer();
+    let buffer: Buffer;
+    try {
+      buffer = await archivo.toBuffer();
+    } catch (err) {
+      const e = err as { code?: string };
+      if (e.code === 'FST_REQ_FILE_TOO_LARGE') throw new ErrorTamano('La foto supera el tamaño máximo de 5 MB');
+      throw err;
+    }
     if (!tipoImagenValido(archivo.mimetype, buffer)) throw new ErrorValidacion('La foto debe ser JPG, PNG o WEBP');
     await mkdir(config.carpetaFotos, { recursive: true });
     const nombre = `${id}.${ext}`;
     const rutaNueva = `/fotos/${nombre}`;
-    if (existe.foto && existe.foto !== rutaNueva) await borrarFotoAnterior(existe.foto);
+    // Orden importa: se escribe el archivo nuevo y se actualiza el producto
+    // ANTES de borrar el anterior. Si la escritura fallara y se hubiera
+    // borrado primero, el producto quedaría apuntando a un archivo que ya
+    // no existe; con este orden, si algo falla antes de la actualización,
+    // la foto anterior sigue intacta y el producto sigue apuntando a ella.
     await writeFile(join(config.carpetaFotos, nombre), buffer);
     const [p] = await app.db.update(producto).set({ foto: rutaNueva, actualizado_en: new Date() }).where(eq(producto.id, id)).returning();
+    if (existe.foto && existe.foto !== rutaNueva) await borrarFotoAnterior(existe.foto);
     app.bus.emitir('catalogo');
     return p;
   });

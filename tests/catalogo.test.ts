@@ -264,3 +264,38 @@ test('foto: subir una con otra extensión borra el archivo anterior', async () =
   const nuevo = await ctx.app.inject({ method: 'GET', url: `/fotos/${id}.jpg` });
   expect(nuevo.statusCode).toBe(200);
 });
+
+// --- Ronda de arreglo 2 ---
+
+test('cuerpo JSON de más de 1 MB responde 413 con el mensaje genérico, no el de la foto', async () => {
+  const grande = { categoria_id: categoriaId, nombre: 'Grande', precio: 1, controla_stock: false, descripcion: 'x'.repeat(1_200_000) };
+  const r = await ctx.app.inject({ method: 'POST', url: '/api/admin/productos', payload: grande });
+  expect(r.statusCode).toBe(413);
+  expect(r.json().error).toBe('El contenido supera el tamaño máximo permitido');
+});
+
+test('ajuste de stock y desactivación concurrentes sobre el mismo producto dejan la suma de movimientos cuadrada', async () => {
+  const p = await ctx.app.inject({ method: 'POST', url: '/api/admin/productos', payload: { categoria_id: categoriaId, nombre: 'Concurrencia', precio: 1, controla_stock: true, stock_actual: 20 } });
+  expect(p.statusCode).toBe(201);
+  const id = p.json().id;
+
+  const [ajuste, desactivar] = await Promise.all([
+    ctx.app.inject({ method: 'POST', url: `/api/admin/productos/${id}/stock`, payload: { stock: 35, motivo: 'Llegó pedido' } }),
+    ctx.app.inject({ method: 'PATCH', url: `/api/admin/productos/${id}`, payload: { controla_stock: false } }),
+  ]);
+  // Cuál de las dos gana la carrera lo decide quién toma primero el bloqueo
+  // SELECT ... FOR UPDATE de la fila del producto: si la desactivación gana,
+  // el ajuste que llega después puede fallar con 409 porque para entonces el
+  // producto ya no controla stock (comportamiento correcto, no un error). Lo
+  // único que no puede pasar nunca es que la suma de los movimientos deje de
+  // cuadrar con el estado final del producto.
+  expect([200, 409]).toContain(ajuste.statusCode);
+  expect(desactivar.statusCode).toBe(200);
+
+  const [fila] = await ctx.sql`SELECT stock_actual, controla_stock FROM producto WHERE id = ${id}`;
+  expect(fila.controla_stock).toBe(false);
+  expect(fila.stock_actual).toBeNull();
+  const movs = await ctx.sql`SELECT cantidad FROM movimiento_stock WHERE producto_id = ${id}`;
+  const suma = movs.reduce((acc: number, m: any) => acc + m.cantidad, 0);
+  expect(suma).toBe(0); // el producto quedó desactivado (stock efectivo 0); la suma debe cuadrar con eso sin importar el orden real
+});

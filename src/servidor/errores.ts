@@ -1,6 +1,7 @@
 export class ErrorNegocio extends Error { estado = 409; }
 export class ErrorValidacion extends Error { estado = 400; }
 export class NoEncontrado extends Error { estado = 404; constructor(m = 'No existe') { super(m); } }
+export class ErrorTamano extends Error { estado = 413; }
 
 const PATRON_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

@@ -25,7 +25,7 @@ type ErrorConEstado = FastifyError & { estado?: number };
 const MENSAJES_ERROR_FASTIFY: Record<number, string> = {
   400: 'Cuerpo inválido',
   406: 'Se esperaba un archivo',
-  413: 'La foto supera el tamaño máximo de 5 MB',
+  413: 'El contenido supera el tamaño máximo permitido',
   415: 'Tipo de contenido no soportado',
 };
 
