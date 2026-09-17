@@ -34,10 +34,14 @@ Actualizado: 2026-09-17 (Tarea 7 del plan 1, pantalla de admin)
 - Nombre del local confirmado por la carta: Delicadas.
 
 ## Pendientes de decisión (preguntar a Dave o al propietario)
-1. Aprobación del propietario sobre la propuesta.
-2. Referencia opcional por pago: mantener o quitar.
-3. Exportar reportes a CSV: mantener o quitar.
-4. Nombre del local, cantidad de mesas, umbral de stock bajo (propuesto 5), propina sugerida.
+
+Ninguno bloquea el trabajo. Todos tienen una respuesta por defecto ya construida o planificada; si Dave no dice lo contrario, se queda como está.
+
+1. **Aprobación del propietario sobre la propuesta** (`docs/propuesta-nucleo-pos.html`). Dave la aprobó a nivel de diseño el 2026-09-12; el propietario de la cafetería no se ha pronunciado. No bloquea: el plan 1 ya está construido.
+2. **Referencia opcional en cada pago** (últimos dígitos de tarjeta o número de transferencia). Construida en el plan 2 salvo que Dave la quite.
+3. **Exportar reportes a CSV.** Construido en el plan 3 salvo que Dave lo quite.
+4. **Valores de configuración del primer día:** cantidad de mesas, umbral de stock bajo (por defecto 5) y propina sugerida (por defecto 0). No hace falta decidirlos ahora: se escriben en Admin, pestaña Configuración, cuando el sistema se instale. El nombre del local ya se sabe por la carta: Delicadas.
+5. **Menú:** resuelto el 2026-09-17. Categorías, productos con stock contado y carga masiva por CSV: ver `docs/menu/menu-delicadas.md`.
 
 ## Siguiente paso exacto
 - **Plan 1 terminado** el 2026-09-17 (commits 8aebf5a..06bf176). Verificado: `npm run typecheck`, `npm run build` y 85 pruebas en verde. Revisión final de toda la rama: sin hallazgos críticos, sus cuatro condiciones aplicadas y re-revisadas.
