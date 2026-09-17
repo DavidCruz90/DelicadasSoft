@@ -1,16 +1,7 @@
-# PARA DAVE
+# Fase 2 — Seguridad para entrar al sistema
 
-Solo lo que necesito de ti. No se acumula: cuando apruebas algo, sale de aquí y entra lo siguiente.
-
-## Fase de trabajo
-
-| | Fase | Estado |
-|---|---|---|
-| ✅ | Cimientos (base de datos, catálogo, pantalla de administrador) | Terminado |
-| 👉 | **Seguridad para entrar al sistema** | **Diseño hecho, esperando tu confirmación** |
-| | Operación (pedidos, mesas, cobros, ticket) | Por empezar |
-| | Complementos (cocina, egresos, encargos, reportes) | Por empezar |
-| | Entrega (instalación en Windows, respaldos, manual) | Por empezar |
+Fase 2 de 5. Las demás están en esta misma carpeta, una por fase.
+**Estado:** diseño hecho, esperando tu confirmación. Todavía no está construido.
 
 ## Pendientes
 
