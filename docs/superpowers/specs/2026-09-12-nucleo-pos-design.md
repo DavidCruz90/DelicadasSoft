@@ -1,6 +1,6 @@
 # Núcleo POS Cafetería — Diseño
 
-Fecha: 2026-09-12 (cuenta dividida 2026-09-13; encargos, ítem libre, cliente mínimo y ticket sin leyenda 2026-09-14; carga masiva de menú por CSV y menú real de Delicadas 2026-09-17)
+Fecha: 2026-09-12 (cuenta dividida 2026-09-13; encargos, ítem libre, cliente mínimo y ticket sin leyenda 2026-09-14; carga masiva de menú por CSV y menú real de Delicadas 2026-09-17; control de acceso con usuarios, PIN y dispositivos 2026-09-17, en `2026-09-17-seguridad-acceso-design.md`)
 Estado: aprobado en conversación, pendiente de revisión escrita
 Módulo: 1 de 4 (siguen: Menú digital, Facturación electrónica SRI, Wallet de fidelización)
 
@@ -13,7 +13,7 @@ Sistema para operar una cafetería en red local: tomar pedidos por mesa, ampliar
 | Tema | Decisión |
 |---|---|
 | Dispositivos | Varios en la red WiFi del local. Servidor en la PC de caja (Windows). Celulares y tablets abren el navegador. |
-| Usuarios | Sin login ni contraseñas. Meseros se eligen de una lista definida en admin. |
+| Usuarios | Usuarios con rol (mesero, caja, admin) y PIN de 4 dígitos. Lista blanca de dispositivos autorizados por el administrador. Diseño completo en `2026-09-17-seguridad-acceso-design.md` (decisión de Dave del 2026-09-17, que reemplaza el "sin login" original). |
 | Stock | Por producto del menú. Cada producto decide si controla stock. Al llegar a cero se bloquea. |
 | Cobro | Métodos efectivo, tarjeta, transferencia. Varios pagos por cuenta. Cuenta dividida por ítems al momento de cobrar, con cliente, descuento, propina y ticket por cuenta. La división es opcional: por defecto la mesa es una sola cuenta. Ticket imprimible desde navegador (80 mm y hoja normal). |
 | Impresora | No hay aún. El ticket se imprime desde el navegador. |
@@ -79,8 +79,8 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 **configuracion** (una sola fila)
 - `nombre_local`, `simbolo_moneda` (por defecto `$`), `cantidad_mesas` (entero), `propina_sugerida_pct`, `umbral_stock_bajo` (entero, por defecto 5), `cocina_activa` (booleano, por defecto falso), `sonido_cocina` (booleano), `permitir_items_libres` (booleano, por defecto verdadero).
 
-**mesero**
-- `nombre`, `activo`.
+**usuario** (antes `mesero`)
+- `nombre`, `rol` (enum: `mesero`, `caja`, `admin`), `pin_hash` (nulo si aún no tiene PIN), `activo`. Ver `2026-09-17-seguridad-acceso-design.md` 4.1.
 
 **categoria**
 - `nombre`, `orden`, `activa`.
@@ -98,7 +98,7 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 - Regla: solo una jornada con `cerrada_en` nulo a la vez (índice único parcial).
 
 **pedido**
-- `jornada_id`, `numero_mesa` (entero, 0 = para llevar), `numero` (secuencial dentro de la jornada, se muestra en ticket), `mesero_id` (nulo solo cuando el pedido nace de un encargo), `origen` (enum: `mesa`, `llevar`, `encargo`), `encargo_id` (nulo salvo origen encargo), `estado` (enum: `abierto`, `cobrado`, `anulado`), `notas`, `cobrado_en`.
+- `jornada_id`, `numero_mesa` (entero, 0 = para llevar), `numero` (secuencial dentro de la jornada, se muestra en ticket), `usuario_id` (el mesero que lo tomó; nulo solo cuando el pedido nace de un encargo), `origen` (enum: `mesa`, `llevar`, `encargo`), `encargo_id` (nulo salvo origen encargo), `estado` (enum: `abierto`, `cobrado`, `anulado`), `notas`, `cobrado_en`.
 - Regla: una mesa con número > 0 tiene como máximo un pedido `abierto` (índice único parcial). "Para llevar" admite varios.
 - Un pedido pasa a `cobrado` cuando todas sus cuentas están cobradas.
 
@@ -146,7 +146,7 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 **Caja de encargos.** No es una tabla: es la suma de `abono.monto` con `metodo = efectivo` y `estado = pendiente`. Representa el dinero físico guardado aparte. Se muestra en la pantalla de encargos y en el cierre de caja como dato informativo.
 
 **Entregar** (solo con jornada abierta, encargo `pendiente`): en una transacción,
-1. Crea `pedido` con `origen = encargo`, `numero_mesa = 0`, `mesero_id` nulo, `encargo_id`.
+1. Crea `pedido` con `origen = encargo`, `numero_mesa = 0`, `usuario_id` nulo, `encargo_id`.
 2. Crea `cuenta` 1 con `cliente_id = encargo.cliente_id`.
 3. Crea `ronda` 1 con `origen = caja`, `enviada_a_cocina = false`, y copia cada `encargo_item` como `pedido_item` con `afecta_stock = false`. No genera movimientos de stock.
 4. Convierte cada abono `pendiente` en un `pago` de la cuenta con el mismo método y monto, `referencia = "Abono DD/MM"`, y marca el abono `aplicado`.
@@ -242,7 +242,7 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 | `GET /eventos` | SSE |
 | `GET /catalogo` | Categorías y productos activos con stock |
 | `GET /mesas` | Mesas con estado, pedido abierto, total, aviso de ronda lista |
-| `POST /pedidos` | Crear pedido `{numero_mesa, mesero_id}` |
+| `POST /pedidos` | Crear pedido `{numero_mesa}`; el mesero sale de la sesión, no del cuerpo |
 | `GET /pedidos/:id` | Detalle con rondas, ítems, pagos, totales |
 | `POST /pedidos/:id/rondas` | Enviar ronda `{id, origen, enviada_a_cocina, items:[{producto_id | null, es_libre, nombre, precio, cantidad, nota}]}` |
 | `POST /pedidos/:id/items/:itemId/anular` | `{motivo}` |
@@ -284,7 +284,7 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 ## 7. Pantallas
 
 ### 7.1 Mesero `/mesero`
-1. Primera vez: elegir nombre de la lista de meseros activos. Se guarda en el navegador. Botón "Cambiar" siempre visible.
+1. Se entra con PIN: se elige el nombre de la lista y se escriben 4 dígitos. El aparato recuerda al último usuario y lo deja preseleccionado. Botón "Salir" siempre visible. Ver `2026-09-17-seguridad-acceso-design.md` 5.3.
 2. Cuadrícula de mesas: libre (blanco), ocupada (azul, con total y hora del último envío), con ronda lista (verde parpadeante, si cocina activa). Botón "Para llevar" crea un pedido sin mesa.
 3. Dentro de una mesa: lista de rondas ya enviadas (solo lectura) y una zona "Nueva ronda" donde agrega ítems desde el catálogo por categorías. Cada producto muestra precio y, si controla stock, "Quedan N". Toque agrega 1; controles +/−; campo de nota por ítem.
 4. Botón "Ítem libre" junto al catálogo (si está permitido): nombre, precio y cantidad.
@@ -312,8 +312,9 @@ Prefijo `/api`. JSON. Errores con `{ "error": "mensaje en español" }` y código
 - Indicador de ronda lista por mesa si cocina activa.
 
 ### 7.4 Admin `/admin`
-- Menú: categorías (orden, activo) y productos (nombre, categoría, precio, descripción, foto, activo, controla stock, stock actual). Editar stock pide motivo.
-- Meseros: alta, baja, activo.
+- Menú: categorías (orden, activo) y productos (nombre, categoría, precio, descripción, foto, activo, controla stock, stock actual). Editar stock pide motivo. Cada producto muestra su "Historial de precios" (precio anterior, nuevo, quién y cuándo).
+- Usuarios: alta, baja, activo, rol y "Cambiar PIN". No se puede desactivar al último admin activo.
+- Dispositivos: autorizar los que esperan (con su código y un nombre), quitar acceso a los autorizados, y ver los últimos intentos fallidos.
 - Mesas: cantidad. Cambiarla a menos exige que las mesas sobrantes estén libres.
 - Clientes: listado, búsqueda, edición.
 - Configuración: nombre del local, símbolo, propina sugerida, umbral de stock, cocina activa, sonido, permitir ítems libres.
@@ -344,7 +345,7 @@ Constancia de encargo: mismo formato, con número de encargo, fecha de entrega, 
 
 ## 10. Fuera del alcance del Núcleo
 
-Login o PIN, impresora térmica directa, acceso desde internet, factura electrónica, puntos o wallet, menú digital público, desglose de IVA, múltiples locales, reservas de mesa, recetas por ingrediente, recordatorios automáticos al cliente por encargos.
+Impresora térmica directa, acceso desde internet, factura electrónica, puntos o wallet, menú digital público, desglose de IVA, múltiples locales, reservas de mesa, recetas por ingrediente, recordatorios automáticos al cliente por encargos, HTTPS, permisos a medida por pantalla, cambio de PIN por el propio usuario y rechazo de PIN fáciles de adivinar.
 
 ## 11. Ganchos para módulos siguientes
 
