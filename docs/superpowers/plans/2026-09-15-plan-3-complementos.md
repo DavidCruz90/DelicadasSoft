@@ -1196,7 +1196,7 @@ git add -A && git commit -m "Reportes por jornada con CSV y gestión de clientes
 - Modify: `src/servidor/app.ts` (registrar `rutasImportarMenu(app)` después de `rutasCatalogo(app)`)
 
 **Interfaces:**
-- Consumes (planes 1 y 2, verificar nombres reales en el código antes de empezar): `Db`; tablas `categoria`, `producto`, `movimientoStock`, `jornada`; `ErrorValidacion`, `exigirMonto(valor: unknown, mensaje: string): string` de `src/servidor/errores.ts`; `app.bus.emitir`; `crearAppDePrueba()` → `{ app, db, sql }`. Motivos de movimiento que usa el catálogo desde la ronda de arreglo de la Task 5 del plan 1: `"Stock inicial"` y `"Control de stock desactivado"`, origen `ajuste_manual`. Comprobar con `grep -n "Stock inicial\|Control de stock desactivado" src/servidor/modulos/catalogo.ts` que siguen siendo esos textos; si difieren, usar los del código y avisar en el reporte.
+- Consumes (planes 1 y 2, verificar nombres reales en el código antes de empezar): `Db`; tablas `categoria`, `producto`, `movimientoStock`, `jornada`; `ErrorValidacion`, `ErrorTamano` (413), `exigirMonto(valor: unknown, mensaje: string): string` de `src/servidor/errores.ts`; `app.bus.emitir`; `crearAppDePrueba()` → `{ app, db, sql }`. Motivos de movimiento que usa el catálogo desde la ronda de arreglo de la Task 5 del plan 1: `"Stock inicial"` y `"Control de stock desactivado"`, origen `ajuste_manual`. Comprobar con `grep -n "Stock inicial\|Control de stock desactivado" src/servidor/modulos/catalogo.ts` que siguen siendo esos textos; si difieren, usar los del código y avisar en el reporte.
 - Produces:
   - `COLUMNAS: readonly string[]` = `['categoria','producto','precio','controla_stock','stock_inicial','descripcion','orden_categoria','orden_producto']`.
   - `leerCsv(bytes: Buffer): { separador: ';' | ','; encabezado: string[]; filas: { numero: number; celdas: Record<string, string> }[] }`.
@@ -1430,7 +1430,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Db } from '../db/conexion';
 import { categoria, producto, movimientoStock, jornada } from '../db/schema';
-import { ErrorValidacion, exigirMonto } from '../errores';
+import { ErrorTamano, ErrorValidacion, exigirMonto } from '../errores';
 
 export const COLUMNAS = ['categoria', 'producto', 'precio', 'controla_stock', 'stock_inicial', 'descripcion', 'orden_categoria', 'orden_producto'] as const;
 const OBLIGATORIAS = ['categoria', 'producto', 'precio'];
@@ -1695,7 +1695,7 @@ async function leerArchivo(req: FastifyRequest): Promise<Buffer> {
   try {
     return await parte.toBuffer();
   } catch (e: any) {
-    if (e?.code === 'FST_REQ_FILE_TOO_LARGE') throw new ErrorValidacion('El archivo supera el tamaño máximo de 1 MB');
+    if (e?.code === 'FST_REQ_FILE_TOO_LARGE') throw new ErrorTamano('El archivo supera el tamaño máximo de 1 MB');
     throw e;
   }
 }
@@ -1731,7 +1731,7 @@ Notas para el ejecutor:
 - `leerCsv` registra como número de fila la línea donde empieza el registro: el encabezado es la fila 1, igual que en Excel. Un salto de línea dentro de comillas suma línea pero no cierra el registro.
 - `validarEncabezado` y las comprobaciones de archivo vacío lanzan `ErrorValidacion` (400) y rechazan el archivo entero; todo lo demás es error de la fila.
 - Si al ejecutar la prueba "reimportar" el conteo de categorías da 3, es que "tradicionales" en minúsculas no se identificó con "Tradicionales": revisar `normal()`.
-- `leerArchivo` traduce el exceso de tamaño a su propio 400 con el límite de 1 MB, sin depender del mensaje global del 413 de `app.ts`.
+- `leerArchivo` traduce el exceso de tamaño a `ErrorTamano` (413) con su propio mensaje de 1 MB. `ErrorTamano` lo creó la ronda de arreglo 2 de la Task 5 del plan 1 en `src/servidor/errores.ts`; comprobar que existe con ese nombre antes de empezar.
 
 - [ ] **Step 4: Registrar las rutas**
 
