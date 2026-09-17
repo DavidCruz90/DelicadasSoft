@@ -35,7 +35,7 @@ Actualizado: 2026-09-17 (Tarea 6 del plan 1, web base)
 
 ## Siguiente paso exacto
 - Plan 1: tareas 1 a 6 terminadas (65 pruebas); la tarea 6 (web base con Preact y Vite) está pendiente de revisión de `claude-fable-5-1`. Reporte completo: `.superpowers/sdd/2026-09-15-plan-1-cimientos/task-6-report.md`. Ejecutar la tarea 7 (pantalla de admin) después de la revisión.
-- Orquestador: `superpowers:subagent-driven-development`. Ejecutor de cada tarea: el modelo que indica el encabezado del plan (`claude-sonnet-5` en las tareas 6 y 7) con `superpowers:test-driven-development`. Revisor: `claude-fable-5-1` con `superpowers:requesting-code-review`, siempre con sondeo en vivo. Cierre con `superpowers:verification-before-completion`.
+- Orquestador: `superpowers:subagent-driven-development`. Ejecutor de cada tarea: el modelo que indica el encabezado del plan (`claude-sonnet-5` en la tarea 7) con `superpowers:test-driven-development`. Revisor: `claude-fable-5-1` con `superpowers:requesting-code-review`, siempre con sondeo en vivo. Cierre con `superpowers:verification-before-completion`.
 - Entrada: `CLAUDE.md`, `docs/APRENDIZAJES.md`, `docs/superpowers/plans/2026-09-15-plan-1-cimientos.md`, spec.
 - Prerrequisito de entorno: `open -a OrbStack`, `docker start cafeteria-pg`. Node 22+.
 - Terminado cuando: `npm run typecheck && npm run build && npm test` pasa, la verificación manual de la tarea 7 se cumplió, y este archivo dice "Plan 1 terminado".
