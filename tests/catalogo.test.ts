@@ -274,28 +274,52 @@ test('cuerpo JSON de más de 1 MB responde 413 con el mensaje genérico, no el d
   expect(r.json().error).toBe('El contenido supera el tamaño máximo permitido');
 });
 
-test('ajuste de stock y desactivación concurrentes sobre el mismo producto dejan la suma de movimientos cuadrada', async () => {
-  const p = await ctx.app.inject({ method: 'POST', url: '/api/admin/productos', payload: { categoria_id: categoriaId, nombre: 'Concurrencia', precio: 1, controla_stock: true, stock_actual: 20 } });
+test('carrera determinista: un ajuste de stock que se confirma mientras un PATCH espera el bloqueo de la fila deja los tres movimientos correctos', async () => {
+  const p = await ctx.app.inject({ method: 'POST', url: '/api/admin/productos', payload: { categoria_id: categoriaId, nombre: 'Carrera determinista', precio: 1, controla_stock: true, stock_actual: 20 } });
   expect(p.statusCode).toBe(201);
   const id = p.json().id;
 
-  const [ajuste, desactivar] = await Promise.all([
-    ctx.app.inject({ method: 'POST', url: `/api/admin/productos/${id}/stock`, payload: { stock: 35, motivo: 'Llegó pedido' } }),
-    ctx.app.inject({ method: 'PATCH', url: `/api/admin/productos/${id}`, payload: { controla_stock: false } }),
-  ]);
-  // Cuál de las dos gana la carrera lo decide quién toma primero el bloqueo
-  // SELECT ... FOR UPDATE de la fila del producto: si la desactivación gana,
-  // el ajuste que llega después puede fallar con 409 porque para entonces el
-  // producto ya no controla stock (comportamiento correcto, no un error). Lo
-  // único que no puede pasar nunca es que la suma de los movimientos deje de
-  // cuadrar con el estado final del producto.
-  expect([200, 409]).toContain(ajuste.statusCode);
-  expect(desactivar.statusCode).toBe(200);
+  let patchPromise: Promise<{ statusCode: number; json: () => any }> | null = null;
+
+  // Transacción externa (conexión propia, vía ctx.sql) que toma el mismo
+  // bloqueo de fila que usa editarProducto (SELECT ... FOR UPDATE). Mientras
+  // sigue abierta, se dispara el PATCH sin esperarlo: su propio FOR UPDATE
+  // dentro de editarProducto queda bloqueado hasta que esta transacción
+  // externa confirme. Esto fuerza, de forma determinista, el entrelazado que
+  // la prueba anterior (dos Promise.all de app.inject en el mismo proceso)
+  // no lograba producir nunca: el revisor la corrió 10 veces contra el
+  // código sin el bloqueo (commit 6b90f02~1) y las 10 pasó, porque nunca
+  // ejercía la lectura-antes-de-escritura que el arreglo corrige.
+  await ctx.sql.begin(async (tx) => {
+    await tx`SELECT id FROM producto WHERE id = ${id} FOR UPDATE`;
+
+    patchPromise = Promise.resolve(ctx.app.inject({ method: 'PATCH', url: `/api/admin/productos/${id}`, payload: { controla_stock: false } }));
+
+    // Da tiempo a que el PATCH llegue a la base y quede esperando el bloqueo
+    // de la fila (su propio SELECT ... FOR UPDATE dentro de la transacción
+    // de editarProducto).
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    // Mientras el PATCH espera, se aplica a mano el efecto de un ajuste de
+    // stock ya confirmado (como haría ajustarStock si hubiera ganado la
+    // carrera): stock 20 -> 35, con su propio movimiento.
+    await tx`UPDATE producto SET stock_actual = 35, actualizado_en = now() WHERE id = ${id}`;
+    await tx`INSERT INTO movimiento_stock (producto_id, jornada_id, cantidad, stock_resultante, origen, motivo) VALUES (${id}, ${null}, 15, 35, 'ajuste_manual', 'Llegó pedido')`;
+  });
+  // Al confirmar la transacción externa se libera el bloqueo: el PATCH,
+  // que seguía esperando dentro de su propio SELECT ... FOR UPDATE, retoma
+  // y lee la fila ya actualizada (stock_actual: 35), no el valor obsoleto
+  // (20) que tenía antes de que se abriera la transacción externa.
+
+  const r = await patchPromise!;
+  expect(r.statusCode).toBe(200);
 
   const [fila] = await ctx.sql`SELECT stock_actual, controla_stock FROM producto WHERE id = ${id}`;
   expect(fila.controla_stock).toBe(false);
   expect(fila.stock_actual).toBeNull();
-  const movs = await ctx.sql`SELECT cantidad FROM movimiento_stock WHERE producto_id = ${id}`;
+
+  const movs = await ctx.sql`SELECT cantidad FROM movimiento_stock WHERE producto_id = ${id} ORDER BY creado_en`;
+  expect(movs.map((m: any) => m.cantidad)).toEqual([20, 15, -35]);
   const suma = movs.reduce((acc: number, m: any) => acc + m.cantidad, 0);
-  expect(suma).toBe(0); // el producto quedó desactivado (stock efectivo 0); la suma debe cuadrar con eso sin importar el orden real
+  expect(suma).toBe(0);
 });
