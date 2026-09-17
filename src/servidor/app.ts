@@ -1,10 +1,16 @@
 import Fastify from 'fastify';
 import type { FastifyError } from 'fastify';
+import multipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
+import { mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { isNull } from 'drizzle-orm';
 import type { Db } from './db/conexion';
+import { config } from './config';
 import { crearBusEventos, rutaEventos, type BusEventos } from './eventos';
 import { obtenerConfiguracion, rutasConfiguracion } from './modulos/configuracion';
 import { rutasMeseros } from './modulos/meseros';
+import { rutasCatalogo } from './modulos/catalogo';
 import { jornada, mesero } from './db/schema';
 
 declare module 'fastify' {
@@ -30,6 +36,10 @@ export async function crearApp({ db }: { db: Db }) {
   const app = Fastify({ logger: false, forceCloseConnections: true });
   app.decorate('db', db);
   app.decorate('bus', crearBusEventos((err) => app.log.error(err)));
+
+  await app.register(multipart);
+  mkdirSync(config.carpetaFotos, { recursive: true });
+  await app.register(fastifyStatic, { root: resolve(config.carpetaFotos), prefix: '/fotos/', decorateReply: false });
 
   app.setErrorHandler((err: ErrorConEstado, _req, reply) => {
     // 1. Nuestros propios errores (ErrorNegocio, ErrorValidacion, NoEncontrado).
@@ -66,6 +76,7 @@ export async function crearApp({ db }: { db: Db }) {
   rutaEventos(app);
   rutasConfiguracion(app);
   rutasMeseros(app);
+  rutasCatalogo(app);
 
   return app;
 }

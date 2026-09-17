@@ -1,6 +1,6 @@
 # ESTADO DEL PROYECTO
 
-Actualizado: 2026-09-15 (noche)
+Actualizado: 2026-09-17
 
 ## Dónde estamos
 - Módulo 1, Núcleo POS: diseño terminado y aprobado por Dave, incluyendo los 4 casos del 2026-09-14: encargos con abono, ítem libre, cliente con solo nombre, ticket sin leyenda de impuestos. Spec: `docs/superpowers/specs/2026-09-12-nucleo-pos-design.md`.
@@ -12,7 +12,7 @@ Actualizado: 2026-09-15 (noche)
   3. `2026-09-15-plan-3-complementos.md` (6 tareas): cocina, egresos, encargos, reportes, clientes admin, datos de ejemplo.
   4. `2026-09-15-plan-4-entrega.md` (5 tareas): logs, respaldos, lanzador Windows y empaquetado, E2E, manual.
 - Dave pidió terminar los 4 planes antes de escribir código. Hecho.
-- Plan 1 en ejecución. Tareas 1 a 4 terminadas y verificadas: proyecto base, esquema de 16 tablas migrado, servidor Fastify con manejo de errores y bus de eventos SSE, y la API de configuración del local y de meseros (`GET/PATCH /api/admin/configuracion`, `GET/POST /api/admin/meseros`, `PATCH /api/admin/meseros/:id`). Ronda de arreglo 1 de la Tarea 4 (revisión de calidad): validación de tipos completa en ambos módulos (rechaza booleanos como texto, `null` en campos de texto, cuerpos que no son objeto, umbrales desmesurados), reactivar un mesero ya verifica nombre único, `exigirUuid`/`exigirObjeto` compartidos en `src/servidor/errores.ts`, e índice único parcial `mesero_nombre_activo_unico` (migración 0003) con traducción del 23505 de Postgres a 409. 35 pruebas pasan, `npm run typecheck` sin errores.
+- Plan 1 en ejecución. Tareas 1 a 5 terminadas y verificadas: proyecto base, esquema de 16 tablas migrado, servidor Fastify con manejo de errores y bus de eventos SSE, la API de configuración del local y de meseros (`GET/PATCH /api/admin/configuracion`, `GET/POST /api/admin/meseros`, `PATCH /api/admin/meseros/:id`), y el catálogo (`src/servidor/modulos/catalogo.ts`): categorías, productos con precio y control de stock, `POST /api/admin/productos/:id/stock` con registro en `movimiento_stock`, `POST /api/admin/productos/:id/foto` (multipart, sirve `/fotos/<id>.<ext>`) y `GET /api/catalogo` solo con categorías y productos activos. Ronda de arreglo 1 de la Tarea 4 (revisión de calidad): validación de tipos completa en ambos módulos (rechaza booleanos como texto, `null` en campos de texto, cuerpos que no son objeto, umbrales desmesurados), reactivar un mesero ya verifica nombre único, `exigirUuid`/`exigirObjeto` compartidos en `src/servidor/errores.ts`, e índice único parcial `mesero_nombre_activo_unico` (migración 0003) con traducción del 23505 de Postgres a 409. Tarea 5 aplicó la misma validación estricta (el brief traía validación laxa, corregida antes de ejecutar) y confirmó que `@fastify/static@10.1.3` acepta `root`/`prefix`/`decorateReply` igual que la versión con la que se escribió el brief. 48 pruebas pasan, `npm run typecheck` sin errores.
 
 ## Decisiones técnicas tomadas durante la ejecución, por si hay que revisarlas
 - **Dependencias subidas por seguridad (2026-09-15):** `@fastify/static` a 10.1.3 y `drizzle-orm` a 0.45.2, por fallos de severidad alta (path traversal e inyección SQL). `vitest`, `drizzle-kit` y `esbuild` se dejan como están: son de desarrollo y el arreglo que npm propone para drizzle-kit es un downgrade.
@@ -27,7 +27,7 @@ Actualizado: 2026-09-15 (noche)
 4. Nombre del local, cantidad de mesas, umbral de stock bajo (propuesto 5), propina sugerida.
 
 ## Siguiente paso exacto
-- Ejecutar la Tarea 5 del plan 1 (catálogo con stock y fotos), y seguir con el resto del plan 1, tarea por tarea y en orden.
+- Ejecutar la Tarea 6 del plan 1, y seguir con el resto del plan 1, tarea por tarea y en orden.
 - Orquestador: `claude-fable-5-1` con `superpowers:subagent-driven-development` (o `superpowers:executing-plans` en sesión nueva sin subagentes). Despacha cada tarea al modelo que el plan indica en su encabezado (`claude-sonnet-5` en las 7 tareas del plan 1) con `superpowers:test-driven-development`, y la revisión a `claude-fable-5-1` con `superpowers:requesting-code-review`. Cierre de cada tarea con `superpowers:verification-before-completion`.
 - Entrada: `CLAUDE.md`, `docs/superpowers/plans/2026-09-15-plan-1-cimientos.md`, `docs/superpowers/specs/2026-09-12-nucleo-pos-design.md`.
 - Prerrequisito de entorno: Docker en marcha (`docker ps` responde). Node 22+.
