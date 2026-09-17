@@ -1,14 +1,21 @@
 import { asc, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Db } from '../db/conexion';
 import { categoria, producto, movimientoStock, jornada } from '../db/schema';
-import { ErrorNegocio, ErrorValidacion, NoEncontrado, exigirObjeto, exigirUuid } from '../errores';
+import { ErrorNegocio, ErrorValidacion, NoEncontrado, exigirMonto, exigirObjeto, exigirUuid } from '../errores';
 import { config } from '../config';
 
 export type Categoria = typeof categoria.$inferSelect;
 export type Producto = typeof producto.$inferSelect;
+
+// Tipo del "tx" que recibe el callback de db.transaction(async (tx) => ...):
+// una transacción de Drizzle no es asignable al tipo Db completo (le falta
+// $client, entre otras cosas), pero sí soporta select/insert/update/where
+// igual que Db. Se extrae así en vez de escribirlo a mano para que siga el
+// tipo real de la conexión si cambia.
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 // Tope para columnas integer de PostgreSQL que aquí solo guardan cantidades
 // razonables (stock, orden de aparición): sin este límite, un número enorme
@@ -16,24 +23,6 @@ export type Producto = typeof producto.$inferSelect;
 // de un 400 claro. Ver docs/APRENDIZAJES.md, entrada de la ronda de arreglo 1
 // de la Tarea 4: el mismo defecto ya se detectó en umbral_stock_bajo.
 const ENTERO_MAXIMO = 1_000_000;
-const PATRON_NUMERO_LIMPIO = /^\d+(\.\d+)?$/;
-
-// El precio admite un numero o una cadena numerica limpia (igual que la
-// propina en configuracion.ts), nunca un booleano ni null: Number(true) da 1
-// y Number(null) da 0, y ambos colarian sin esta comprobacion de tipo.
-function precioValido(v: unknown): string {
-  let n: number;
-  if (typeof v === 'number') {
-    if (Number.isNaN(v)) throw new ErrorValidacion('El precio debe ser un número mayor o igual a 0');
-    n = v;
-  } else if (typeof v === 'string' && PATRON_NUMERO_LIMPIO.test(v.trim())) {
-    n = Number(v.trim());
-  } else {
-    throw new ErrorValidacion('El precio debe ser un número mayor o igual a 0');
-  }
-  if (n < 0) throw new ErrorValidacion('El precio debe ser un número mayor o igual a 0');
-  return n.toFixed(2);
-}
 
 function textoObligatorio(v: unknown, mensajeTipo: string, mensajeVacio: string): string {
   if (typeof v !== 'string') throw new ErrorValidacion(mensajeTipo);
@@ -124,7 +113,7 @@ async function validarProducto(db: Db, datos: DatosProducto, esNuevo: boolean) {
     );
   }
 
-  if (esNuevo || datos.precio !== undefined) cambios.precio = precioValido(datos.precio);
+  if (esNuevo || datos.precio !== undefined) cambios.precio = exigirMonto(datos.precio, 'El precio debe ser un número mayor o igual a 0, con hasta 2 decimales');
 
   if (datos.descripcion !== undefined) {
     if (datos.descripcion !== null && typeof datos.descripcion !== 'string') {
@@ -158,19 +147,90 @@ export async function listarProductos(db: Db) {
   return db.select().from(producto).orderBy(asc(producto.orden), asc(producto.nombre));
 }
 
+// Inserta el rastro de todo cambio de stock (creación con stock inicial,
+// activación/desactivación de control de stock, ajuste manual). Recibe la
+// conexión activa (la de la base o la de una transacción abierta con
+// db.transaction) para que la escritura del producto y la del movimiento
+// queden en la misma transacción: si una falla, la otra tampoco se guarda.
+async function insertarMovimientoStock(
+  tx: Tx,
+  datos: { productoId: string; cantidad: number; stockResultante: number; origen: 'ajuste_manual' | 'apertura'; motivo: string },
+) {
+  const [abierta] = await tx.select({ id: jornada.id }).from(jornada).where(isNull(jornada.cerrada_en));
+  await tx.insert(movimientoStock).values({
+    producto_id: datos.productoId,
+    jornada_id: abierta?.id ?? null,
+    cantidad: datos.cantidad,
+    stock_resultante: datos.stockResultante,
+    origen: datos.origen,
+    motivo: datos.motivo,
+  });
+}
+
 export async function crearProducto(db: Db, datos: DatosProducto) {
   const cambios = await validarProducto(db, datos, true);
-  const [p] = await db.insert(producto).values(cambios as typeof producto.$inferInsert).returning();
-  return p;
+  return db.transaction(async (tx) => {
+    const [p] = await tx.insert(producto).values(cambios as typeof producto.$inferInsert).returning();
+    if (cambios.controla_stock && typeof cambios.stock_actual === 'number') {
+      await insertarMovimientoStock(tx, {
+        productoId: p.id,
+        cantidad: cambios.stock_actual,
+        stockResultante: cambios.stock_actual,
+        origen: 'ajuste_manual',
+        motivo: 'Stock inicial',
+      });
+    }
+    return p;
+  });
 }
 
 export async function editarProducto(db: Db, id: string, datos: DatosProducto) {
   exigirUuid(id, 'El identificador del producto no es válido');
   const [existe] = await db.select().from(producto).where(eq(producto.id, id));
   if (!existe) throw new NoEncontrado('El producto no existe');
-  const cambios = await validarProducto(db, datos, false);
-  const [p] = await db.update(producto).set({ ...cambios, actualizado_en: new Date() }).where(eq(producto.id, id)).returning();
-  return p;
+
+  // Guarda del brief, restaurada: si el producto ya controla stock, tocar
+  // stock_actual por esta vía (incluso reafirmando controla_stock: true) es
+  // la puerta trasera al ajuste con motivo; se bloquea siempre. El único
+  // caso permitido es reafirmar controla_stock: true SIN mandar stock_actual,
+  // que conserva el valor existente sin registrar ningún movimiento.
+  if (datos.controla_stock === true && existe.controla_stock && datos.stock_actual !== undefined) {
+    throw new ErrorValidacion('Para cambiar el stock usa el ajuste de stock con motivo');
+  }
+  const datosParaValidar: DatosProducto = { ...datos };
+  if (datos.controla_stock === true && existe.controla_stock) {
+    datosParaValidar.stock_actual = existe.stock_actual;
+  }
+
+  const cambios = await validarProducto(db, datosParaValidar, false);
+
+  return db.transaction(async (tx) => {
+    const [p] = await tx.update(producto).set({ ...cambios, actualizado_en: new Date() }).where(eq(producto.id, id)).returning();
+
+    const activandoControl = datos.controla_stock === true && !existe.controla_stock;
+    const desactivandoControl = datos.controla_stock === false && existe.controla_stock;
+
+    if (activandoControl && typeof cambios.stock_actual === 'number') {
+      await insertarMovimientoStock(tx, {
+        productoId: id,
+        cantidad: cambios.stock_actual,
+        stockResultante: cambios.stock_actual,
+        origen: 'ajuste_manual',
+        motivo: 'Stock inicial',
+      });
+    } else if (desactivandoControl) {
+      const stockPrevio = existe.stock_actual ?? 0;
+      await insertarMovimientoStock(tx, {
+        productoId: id,
+        cantidad: -stockPrevio,
+        stockResultante: 0,
+        origen: 'ajuste_manual',
+        motivo: 'Control de stock desactivado',
+      });
+    }
+
+    return p;
+  });
 }
 
 export async function ajustarStock(db: Db, productoId: string, datos: { stock?: unknown; motivo?: unknown; origen?: unknown }) {
@@ -193,13 +253,11 @@ export async function ajustarStock(db: Db, productoId: string, datos: { stock?: 
     const [p] = await tx.select().from(producto).where(eq(producto.id, productoId)).for('update');
     if (!p) throw new NoEncontrado('El producto no existe');
     if (!p.controla_stock) throw new ErrorNegocio('Este producto no controla stock');
-    const [abierta] = await tx.select({ id: jornada.id }).from(jornada).where(isNull(jornada.cerrada_en));
     const [actualizado] = await tx.update(producto).set({ stock_actual: nuevo, actualizado_en: new Date() }).where(eq(producto.id, productoId)).returning();
-    await tx.insert(movimientoStock).values({
-      producto_id: productoId,
-      jornada_id: abierta?.id ?? null,
+    await insertarMovimientoStock(tx, {
+      productoId,
       cantidad: nuevo - (p.stock_actual ?? 0),
-      stock_resultante: nuevo,
+      stockResultante: nuevo,
       origen,
       motivo,
     });
@@ -214,6 +272,36 @@ export async function obtenerCatalogo(db: Db) {
 }
 
 const EXTENSIONES: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
+// El mimetype que declara el cliente en la petición multipart no es
+// confiable (un HTML puede declararse "image/png"); se comprueban además los
+// primeros bytes del archivo contra la firma real de cada formato.
+function tipoImagenValido(mimetype: string, buffer: Buffer): boolean {
+  if (mimetype === 'image/png') {
+    return buffer.length >= 4 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+  }
+  if (mimetype === 'image/jpeg') {
+    return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  }
+  if (mimetype === 'image/webp') {
+    return buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+  }
+  return false;
+}
+
+// Borra la foto anterior de fotos/ cuando la nueva queda con otro nombre de
+// archivo (cambió la extensión); si ya no existe (ya se borró, o nunca se
+// escribió), se ignora: no es un error que la foto vieja no esté.
+async function borrarFotoAnterior(rutaAnterior: string | null) {
+  if (!rutaAnterior) return;
+  const nombre = rutaAnterior.replace(/^\/fotos\//, '');
+  try {
+    await unlink(join(config.carpetaFotos, nombre));
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e.code !== 'ENOENT') throw err;
+  }
+}
 
 // Un cuerpo ausente (sin Content-Type o sin payload) llega como undefined:
 // se trata como "sin datos" en PATCH, igual que en configuracion y meseros.
@@ -265,13 +353,17 @@ export function rutasCatalogo(app: FastifyInstance) {
     const [existe] = await app.db.select().from(producto).where(eq(producto.id, id));
     if (!existe) throw new NoEncontrado('El producto no existe');
     const archivo = await req.file({ limits: { fileSize: 5 * 1024 * 1024 } });
-    if (!archivo) throw new ErrorValidacion('Falta el archivo de foto');
+    if (!archivo || archivo.fieldname !== 'foto') throw new ErrorValidacion('Falta el archivo de foto');
     const ext = EXTENSIONES[archivo.mimetype];
     if (!ext) throw new ErrorValidacion('La foto debe ser JPG, PNG o WEBP');
+    const buffer = await archivo.toBuffer();
+    if (!tipoImagenValido(archivo.mimetype, buffer)) throw new ErrorValidacion('La foto debe ser JPG, PNG o WEBP');
     await mkdir(config.carpetaFotos, { recursive: true });
     const nombre = `${id}.${ext}`;
-    await writeFile(join(config.carpetaFotos, nombre), await archivo.toBuffer());
-    const [p] = await app.db.update(producto).set({ foto: `/fotos/${nombre}`, actualizado_en: new Date() }).where(eq(producto.id, id)).returning();
+    const rutaNueva = `/fotos/${nombre}`;
+    if (existe.foto && existe.foto !== rutaNueva) await borrarFotoAnterior(existe.foto);
+    await writeFile(join(config.carpetaFotos, nombre), buffer);
+    const [p] = await app.db.update(producto).set({ foto: rutaNueva, actualizado_en: new Date() }).where(eq(producto.id, id)).returning();
     app.bus.emitir('catalogo');
     return p;
   });
