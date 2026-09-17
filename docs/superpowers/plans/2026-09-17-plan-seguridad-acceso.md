@@ -710,6 +710,20 @@ test('cambiar PIN: guarda un hash nuevo que verifica, y valida id y pin', async 
   expect(sinCuerpo.statusCode).toBe(400);
 });
 
+test('cambiar el PIN cierra al instante las sesiones abiertas de ese usuario y no las de otros (decisión de Dave, 2026-09-17)', async () => {
+  const a = (await crear('Sesionada')).json().id;
+  const b = (await crear('Ajena')).json().id;
+  // La tabla `sesion` existe desde Task 1; `abrirSesion` llega en Task 4, así
+  // que aquí se insertan las filas a mano.
+  await ctx.sql`INSERT INTO sesion (usuario_id, token_hash) VALUES (${a}, 'huella-a'), (${b}, 'huella-b')`;
+  const r = await ctx.app.inject({ method: 'POST', url: `${RUTA}/${a}/pin`, payload: { pin: '4321' } });
+  expect(r.statusCode).toBe(200);
+  const [suya] = await ctx.sql`SELECT cerrada_en FROM sesion WHERE token_hash = 'huella-a'`;
+  const [ajena] = await ctx.sql`SELECT cerrada_en FROM sesion WHERE token_hash = 'huella-b'`;
+  expect(suya.cerrada_en).not.toBeNull();
+  expect(ajena.cerrada_en).toBeNull();
+});
+
 test('dos usuarios pueden tener el mismo PIN', async () => {
   const a = await crear('Mismo uno', 'mesero', '7777');
   const b = await crear('Mismo dos', 'caja', '7777');
@@ -1005,13 +1019,23 @@ export async function editarUsuario(db: Db, id: string, datos: { nombre?: unknow
   });
 }
 
+// Decisión de Dave del 2026-09-17: cambiarle el PIN a alguien lo saca al
+// instante de donde tenga abierto. Es lo que se espera al cambiar una clave, y
+// permite cortar de verdad si se sospecha que otro la conoce. Va en la misma
+// transacción que el PIN nuevo: no puede quedar el PIN cambiado con la sesión
+// viva. No importa `sesiones.ts` (Task 4) para no crear dependencia hacia
+// atrás; la tabla `sesion` existe desde Task 1.
 export async function cambiarPin(db: Db, id: string, datos: { pin?: unknown }): Promise<UsuarioPublico> {
   exigirUuid(id, 'El identificador del usuario no es válido');
   const pin = exigirPin(datos.pin);
   const pin_hash = await cifrarPin(pin);
-  const [u] = await db.update(usuario).set({ pin_hash }).where(eq(usuario.id, id)).returning();
-  if (!u) throw new NoEncontrado('El usuario no existe');
-  return publico(u);
+  return db.transaction(async (tx) => {
+    const [u] = await tx.update(usuario).set({ pin_hash }).where(eq(usuario.id, id)).returning();
+    if (!u) throw new NoEncontrado('El usuario no existe');
+    await tx.update(sesion).set({ cerrada_en: new Date() })
+      .where(and(eq(sesion.usuario_id, id), isNull(sesion.cerrada_en)));
+    return publico(u);
+  });
 }
 
 // Recuperación con acceso físico (spec 5.5). Busca al administrador activo
@@ -3999,6 +4023,6 @@ Los planes `2026-09-15-plan-2-operacion.md` y `2026-09-15-plan-3-complementos.md
 3. **4.3 nombra `creada_en` en `sesion` y 4.4 `ocurrido_en` en `intento_fallido`**, mientras la restricción global del proyecto dice que toda tabla lleva `creado_en`/`actualizado_en`. El plan usa `creado_en` para ambos (sin columna duplicada); `listarDispositivos` lo expone como `ocurrido_en`. Recomendación: alinear los nombres en 4.3 y 4.4.
 4. **3.1 exime `GET /api/instalacion` de dispositivo y sesión pero lo limita a 127.0.0.1**; 5.1.2 dice "cualquier pantalla que reciba eso muestra la instalación". Un celular nunca recibe `{ instalado: false }` (recibe 403). El plan sigue 3.1: solo la PC de caja ve la instalación; un celular antes de instalar ve la pantalla de código (que nadie podrá autorizar hasta instalar). Recomendación: precisar 5.1.2 ("la PC de caja").
 5. **7 dice `POST /api/sesion → { token, usuario }`** y 8/5.4 hablan de expiración en pantalla. El plan añade `expira_en` a esa respuesta y a `GET /api/sesion` (ya lo tiene). Recomendación: añadir `expira_en` en 7.
-6. **Cambiar el PIN de un usuario (o desactivarlo) no dice qué pasa con sus sesiones abiertas.** El plan cierra el acceso al desactivar (siguiente petición 401) y **no** cierra sesiones al cambiar el PIN. Recomendación: decidir en 4.1 o dejar como está y anotarlo.
+6. ~~**Cambiar el PIN de un usuario (o desactivarlo) no dice qué pasa con sus sesiones abiertas.**~~ **Resuelto por Dave el 2026-09-17: al instante.** Cambiar el PIN cierra las sesiones abiertas de ese usuario, en la misma transacción que escribe el PIN nuevo (`cambiarPin`, Task 2, con su prueba). Desactivar ya cortaba el acceso en la petición siguiente. Anotado en la spec 4.1.
 7. **Revocar un aparato pendiente** (no autorizado todavía) no está descrito; el plan lo marca `revocado` (desaparece de la lista) y su cookie nunca sirve. Recomendación: una línea en 4.2.
 8. **`autorizado_por`** exige un usuario, pero hasta la Task 4 de este plan no hay sesión; el plan lo deja nulo en ese tramo y siempre lleno después. No es hueco de la spec, solo orden de construcción; se anota para el revisor de Task 3.
