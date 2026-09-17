@@ -21,6 +21,9 @@ Actualizado: 2026-09-17 (Tarea 7 del plan 1, pantalla de admin)
 - **`actualizado_en` se actualiza solo** vía `$onUpdate` de Drizzle, que cubre las escrituras hechas con Drizzle pero no las hechas con SQL crudo. Si en algún plan se escribe con SQL crudo, hay que poner el campo a mano o añadir un disparador.
 - **Faltan índices sobre claves foráneas de alto tráfico** (`pedido_item.ronda_id`, `pago.cuenta_id`, `abono.encargo_id`, `encargo_item.encargo_id`). Irrelevante en una base de este tamaño; revisar solo si aparece lentitud.
 
+## Decisiones tomadas durante la ejecución
+- Las 30 decisiones que el orquestador tomó sin consultar durante el plan 1, con su motivo y su costo si son erróneas, están en `docs/decisiones-plan-1.md`. Conviene que Dave las repase.
+
 ## Riesgos aceptados
 - **Sin contraseñas.** Es la decisión de diseño del 2026-09-12: cualquier dispositivo conectado a la WiFi del local que conozca la dirección puede abrir `/admin` y cambiar precios, stock o el menú. Los cambios de stock dejan rastro en movimientos; los de precio, no. Mitigación práctica: usar una WiFi con contraseña y no compartirla con clientes. Si algún día molesta, se añade un PIN para admin.
 
