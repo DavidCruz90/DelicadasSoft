@@ -10,7 +10,7 @@ test('dist/web/index.html existe (ejecutar npm run build antes)', () => {
   expect(existsSync('dist/web/index.html')).toBe(true);
 });
 
-for (const ruta of ['/', '/admin', '/mesero', '/caja', '/cocina']) {
+for (const ruta of ['/', '/admin', '/admin/', '/mesero', '/caja', '/cocina']) {
   test(`GET ${ruta} devuelve la pagina`, async () => {
     const r = await ctx.app.inject({ method: 'GET', url: ruta });
     expect(r.statusCode).toBe(200);

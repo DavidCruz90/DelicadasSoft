@@ -35,7 +35,13 @@ export async function crearApp({ db }: { db: Db }) {
   // de cerrar el servidor HTTP en app.close(). Sin esto, Fastify 5 solo
   // cierra conexiones ociosas y una conexion SSE nunca lo esta: app.close()
   // se queda colgado para siempre con una sola pantalla de cocina abierta.
-  const app = Fastify({ logger: false, forceCloseConnections: true });
+  // ignoreTrailingSlash hace que /admin y /admin/ respondan igual: sin esto,
+  // una pantalla que alguien abre escribiendo la barra final a mano (o un
+  // enlace guardado con ella) se topa con el 404 JSON en vez de la pagina.
+  // Va en routerOptions: la opcion de nivel superior existe pero Fastify 5
+  // la marca obsoleta en tiempo de ejecucion (aviso FSTDEP022) y se quita
+  // en Fastify 6.
+  const app = Fastify({ logger: false, forceCloseConnections: true, routerOptions: { ignoreTrailingSlash: true } });
   app.decorate('db', db);
   app.decorate('bus', crearBusEventos((err) => app.log.error(err)));
 

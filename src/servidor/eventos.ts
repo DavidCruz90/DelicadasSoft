@@ -46,7 +46,12 @@ export function rutaEventos(app: FastifyInstance) {
     const cancelar = app.bus.suscribir((e) => {
       reply.raw.write(`event: ${e.nombre}\ndata: ${JSON.stringify(e.datos ?? {})}\n\n`);
     });
-    const latido = setInterval(() => reply.raw.write(': latido\n\n'), 25000);
+    // Evento con nombre (no un comentario ':') para que el cliente pueda
+    // escucharlo con addEventListener y usarlo como senal de "la conexion
+    // sigue viva", ademas de reiniciar su propio vigilante de 60 s con el.
+    // No forma parte de NombreEvento: nadie lo emite por el bus, solo esta
+    // ruta lo escribe directamente en la respuesta.
+    const latido = setInterval(() => reply.raw.write('event: latido\ndata: {}\n\n'), 25000);
     req.raw.on('close', () => {
       clearInterval(latido);
       cancelar();
