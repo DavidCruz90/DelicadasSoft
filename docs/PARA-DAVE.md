@@ -1,12 +1,20 @@
 # PARA DAVE
 
-Una sola cosa a la vez: lo que toca revisar o probar **ahora**. Cuando lo apruebes, este archivo se reemplaza por lo siguiente. No se acumula; lo viejo queda en `docs/BITACORA.md`.
+Solo lo que necesito de ti. No se acumula: cuando apruebas algo, sale de aquí y entra lo siguiente.
 
----
+## Fase de trabajo
 
-**Ahora toca:** confirmar cómo se va a entrar al sistema. Todavía no hay nada que probar, esto aún no está construido.
+| | Fase | Estado |
+|---|---|---|
+| ✅ | Cimientos (base de datos, catálogo, pantalla de administrador) | Terminado |
+| 👉 | **Seguridad para entrar al sistema** | **Diseño hecho, esperando tu confirmación** |
+| | Operación (pedidos, mesas, cobros, ticket) | Por empezar |
+| | Complementos (cocina, egresos, encargos, reportes) | Por empezar |
+| | Entrega (instalación en Windows, respaldos, manual) | Por empezar |
 
-Dime si alguna de estas 10 está mal. Si están bien, con un "sí" sigo.
+## Pendientes
+
+**1. Confirmar cómo se entra al sistema.** Dime si alguna de estas 10 está mal; si están bien, con un "sí" sigo.
 
 1. Tres tipos de persona: **mesero** entra solo a su pantalla, **caja** entra a caja y a mesero, **administrador** entra a todo.
 2. Para entrar se toca tu nombre en una lista y se escriben **4 números**. El aparato recuerda quién lo usó la última vez, así que casi siempre es solo escribir los 4 números.
@@ -19,4 +27,8 @@ Dime si alguna de estas 10 está mal. Si están bien, con un "sí" sigo.
 9. Si se olvidan los números del administrador, se arreglan **sentado frente a la computadora de la caja**, nunca por la red.
 10. Cada **cambio de precio** queda anotado: precio viejo, precio nuevo, quién y a qué hora. Hoy eso no queda en ningún lado.
 
-**Una pregunta:** la propuesta que le vas a mostrar al dueño de la cafetería no dice nada de seguridad. ¿Le agrego un párrafo corto contándole que cada persona entra con su clave, que solo entran los aparatos del local, y que queda registrado quién cobra y quién cambia precios? Yo lo agregaría: es un argumento de venta. Si prefieres, la dejo como está.
+**2. Responder una pregunta.** La propuesta que le vas a mostrar al dueño de la cafetería no dice nada de seguridad. ¿Le agrego un párrafo corto contándole que cada persona entra con su clave, que solo entran los aparatos del local, y que queda registrado quién cobra y quién cambia precios? Yo lo agregaría: es un argumento de venta. Si prefieres, la dejo como está.
+
+## Para probar
+
+Nada todavía: esta fase aún no está construida. Cuando lo esté, aquí van los pasos en orden, con lo que deberías ver en cada uno.
