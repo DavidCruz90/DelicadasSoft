@@ -66,7 +66,7 @@ La línea "Pedidos y al por mayor" confirma el caso de encargos con abono diseñ
 
 Frutas disponibles para jugos y batidos, según la carta: mora, frutilla, tomate, guanábana, naranjilla, naranja.
 
-Total: 29 productos. Los precios ya incluyen todo; la cafetería no cobra impuestos (decisión del 2026-09-14).
+Total: 28 productos. Los precios ya incluyen todo; la cafetería no cobra impuestos (decisión del 2026-09-14).
 
 ## Relación con el diseño ya aprobado
 
