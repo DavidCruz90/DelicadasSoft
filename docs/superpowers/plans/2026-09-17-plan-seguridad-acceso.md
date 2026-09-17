@@ -899,10 +899,10 @@ Expected: FAIL: no encuentra `src/servidor/modulos/usuarios` (y `/api/admin/usua
 
 `src/servidor/modulos/usuarios.ts`:
 ```ts
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Db, Tx } from '../db/conexion';
-import { usuario } from '../db/schema';
+import { sesion, usuario } from '../db/schema';
 import { ErrorNegocio, ErrorValidacion, NoEncontrado, exigirBooleano, exigirObjeto, exigirObjetoOpcional, exigirTexto, exigirUuid } from '../errores';
 import { ROLES, type Rol } from '../../compartido/roles';
 import { cifrarPin, exigirPin } from '../seguridad/pin';
