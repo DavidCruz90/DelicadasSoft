@@ -9,8 +9,8 @@
   "scripts": {
     "dev": "tsx watch src/servidor/index.ts",
     "dev:web": "vite",
-    "build": "vite build && tsc -p tsconfig.servidor.json",
-    "start": "node dist/servidor/index.js",
+    "build": "vite build",
+    "start": "tsx src/servidor/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json",

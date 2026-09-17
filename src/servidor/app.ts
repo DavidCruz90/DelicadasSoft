@@ -2,8 +2,8 @@ import Fastify from 'fastify';
 import type { FastifyError } from 'fastify';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
-import { mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { isNull } from 'drizzle-orm';
 import type { Db } from './db/conexion';
 import { config } from './config';
@@ -42,6 +42,14 @@ export async function crearApp({ db }: { db: Db }) {
   await app.register(multipart);
   mkdirSync(config.carpetaFotos, { recursive: true });
   await app.register(fastifyStatic, { root: resolve(config.carpetaFotos), prefix: '/fotos/', decorateReply: false });
+
+  const carpetaWeb = resolve('dist/web');
+  if (existsSync(join(carpetaWeb, 'index.html'))) {
+    await app.register(fastifyStatic, { root: carpetaWeb, prefix: '/', decorateReply: true, index: false, wildcard: false });
+    for (const ruta of ['/', '/admin', '/mesero', '/caja', '/cocina']) {
+      app.get(ruta, (_req, reply) => reply.sendFile('index.html'));
+    }
+  }
 
   app.setErrorHandler((err: ErrorConEstado, _req, reply) => {
     // 1. Nuestros propios errores (ErrorNegocio, ErrorValidacion, NoEncontrado).
