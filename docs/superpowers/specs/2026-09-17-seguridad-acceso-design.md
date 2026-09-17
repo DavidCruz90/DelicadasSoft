@@ -81,20 +81,21 @@ Cada ruta de la API declara los roles que la admiten. Regla general: rutas bajo 
 ### 4.2 dispositivo
 
 - `nombre` (nulo mientras está pendiente), `codigo` (4 dígitos, único entre los pendientes vigentes), `token_hash`, `estado` (enum: `pendiente`, `autorizado`, `revocado`), `descripcion` (resumen legible del navegador, por ejemplo "Chrome en Android"), `solicitado_en`, `autorizado_en`, `autorizado_por` (usuario_id, nulo), `ultimo_uso_en`, `intentos_fallidos` (entero), `bloqueado_hasta` (nulo).
-- El token es aleatorio de 32 bytes, se entrega una sola vez al navegador, que lo guarda, y en el servidor solo queda su huella (SHA-256; no hace falta un hash lento porque el token no es adivinable).
+- El token es aleatorio de 32 bytes y se entrega una sola vez, en la respuesta de `POST /api/dispositivos/solicitar`, como cookie `HttpOnly`; en el servidor solo queda su huella (SHA-256; no hace falta un hash lento porque el token no es adivinable). El token existe desde que el aparato lo pide, pero **no sirve para nada hasta que el administrador autoriza**. Se entrega ahí y no al consultar el estado porque en el servidor ya no queda el token en claro para poder devolverlo después. Va en cookie porque el canal de eventos en vivo (`EventSource`) no puede mandar cabeceras.
 - Las solicitudes pendientes caducan a los 10 minutos y se borran al listar o al crear una nueva.
-- Revocar pone `estado` en `revocado`: el token deja de servir en la siguiente petición y las sesiones abiertas de ese aparato se cierran.
+- Revocar pone `estado` en `revocado`: el token deja de servir en la siguiente petición y las sesiones abiertas de ese aparato se cierran. Un aparato todavía pendiente también se puede revocar: desaparece de la lista de espera y su token no llega a servir nunca.
 
 ### 4.3 sesion
 
-- `usuario_id`, `dispositivo_id` (nulo si es la PC de caja), `token_hash`, `creada_en`, `ultimo_uso_en`, `expira_en` (nulo para rol mesero), `cerrada_en` (nulo mientras viva).
+- `usuario_id`, `dispositivo_id` (nulo si es la PC de caja), `token_hash`, `ultimo_uso_en`, `expira_en` (nulo para rol mesero), `cerrada_en` (nulo mientras viva). La fecha de creación es el `creado_en` que lleva toda tabla del proyecto.
 - Caja y admin: `expira_en` se recalcula en cada petición (30 y 15 minutos). Mesero: sin expiración por inactividad.
 - Al cerrar la jornada se cierran todas las sesiones de rol `mesero`.
 
 ### 4.4 intento_fallido
 
-- `dispositivo_id`, `usuario_id` (a quién se le intentó el PIN), `ocurrido_en`.
+- `dispositivo_id` (nulo si el intento vino de la PC de caja), `usuario_id` (a quién se le intentó el PIN). La fecha es el `creado_en` que lleva toda tabla del proyecto; la API lo expone como `ocurrido_en`.
 - A los 5 fallos desde un mismo dispositivo, se llena `bloqueado_hasta` con 5 minutos en el futuro. Entrar bien pone `intentos_fallidos` en 0.
+- La PC de caja no tiene fila de dispositivo, así que su bloqueo se cuenta en memoria del servidor, con la misma regla de 5 fallos y 5 minutos. Se pierde al reiniciar el servidor, lo cual exige acceso físico a esa máquina: quien lo tiene ya no necesita adivinar ningún PIN. Sus intentos se guardan con `dispositivo_id` nulo y admin los muestra como "PC de caja".
 - Admin muestra los últimos intentos fallidos junto a la lista de dispositivos.
 
 ### 4.5 cambio_precio
@@ -108,7 +109,7 @@ Cada ruta de la API declara los roles que la admiten. Regla general: rutas bajo 
 ### 5.1 Primer arranque
 
 1. El sistema recién instalado no tiene ningún usuario admin activo. `GET /api/instalacion` responde `{ instalado: false }`.
-2. Cualquier pantalla que reciba eso muestra la pantalla de instalación.
+2. La PC de caja recibe esa respuesta y muestra la pantalla de instalación. Desde la red, `GET /api/instalacion` responde 403 igual que todo lo demás (3.1), así que un celular antes de instalar ve la pantalla de código de autorización, que nadie podrá atender hasta que la instalación termine. Es intencional: la instalación se hace en la PC de caja.
 3. En la PC de caja se escribe nombre del administrador, PIN y su confirmación. `POST /api/instalacion` crea el usuario con rol `admin`.
 4. La ruta solo acepta peticiones desde `127.0.0.1`/`::1` y solo mientras no exista un admin activo. Después responde 409 siempre.
 5. Termina y entra a `/admin`, ya con sesión iniciada.
@@ -119,7 +120,7 @@ Cada ruta de la API declara los roles que la admiten. Regla general: rutas bajo 
 2. La pantalla muestra: "Este dispositivo no está autorizado. Código: 4821." Sin nombre del local ni ningún dato del negocio.
 3. El navegador consulta `GET /api/dispositivos/estado` cada pocos segundos.
 4. El administrador, en `/admin` → Dispositivos, ve el código esperando, le pone nombre ("Celular de Ana") y autoriza.
-5. La siguiente consulta del navegador devuelve el token definitivo. Lo guarda y la pantalla continúa sola, sin recargar.
+5. La siguiente consulta del navegador responde que ya está autorizado, y la cookie que recibió al solicitar empieza a servir. La pantalla continúa sola, sin recargar.
 6. La PC de caja no pasa por esto: las peticiones desde `127.0.0.1`/`::1` se consideran siempre de un dispositivo autorizado. Es lo que evita quedar encerrado sin ningún aparato desde el cual autorizar al primero. **Solo se salta la capa 1: el PIN se exige igual**, y quien tiene acceso físico a esa máquina ya puede apagarla o llevársela, así que no se pierde ninguna protección real.
 
 ### 5.3 Entrar con PIN
@@ -166,14 +167,14 @@ Continúan la numeración de la spec principal, que llega a la regla 20.
 
 **Dispositivos**
 - `POST /api/dispositivos/solicitar` → `{ codigo, espera_id }`
-- `GET /api/dispositivos/estado?espera_id=` → `{ estado }` y, si fue autorizado, `{ token }`
+- `GET /api/dispositivos/estado?espera_id=` → `{ estado }`. El token ya se entregó al solicitar; aquí solo se informa si ya fue autorizado.
 - `GET /api/admin/dispositivos` → pendientes, autorizados y últimos intentos fallidos
 - `POST /api/admin/dispositivos/:id/autorizar` `{ nombre }`
 - `POST /api/admin/dispositivos/:id/revocar`
 
 **Sesión**
 - `GET /api/sesion/usuarios` → `[{ id, nombre, rol }]` (activos y con PIN)
-- `POST /api/sesion` `{ usuario_id, pin }` → `{ token, usuario }`
+- `POST /api/sesion` `{ usuario_id, pin }` → `{ usuario, expira_en }`; el token va en cookie `HttpOnly`
 - `DELETE /api/sesion` → cierra la sesión
 - `GET /api/sesion` → `{ usuario, expira_en }` para que la pantalla sepa quién es
 
@@ -247,3 +248,7 @@ En `2026-09-12-nucleo-pos-design.md`:
 ## 13. Fuera del alcance
 
 Contraseñas largas o usuarios con correo, permisos a medida por pantalla, que cada usuario cambie su propio PIN, rechazar PIN fáciles de adivinar (1234, 0000), HTTPS, registro de cambios de admin distintos del precio, bloqueo por usuario además de por dispositivo, y expulsar sesiones a distancia desde admin.
+
+## 14. Correcciones posteriores
+
+**2026-09-17, al escribir el plan.** Escribir el plan con código real destapó siete contradicciones de este documento, todas ya corregidas arriba: el token no podía entregarse al consultar el estado si en el servidor solo queda su huella (ahora se entrega al solicitar, en cookie `HttpOnly`, y no sirve hasta que se autoriza); faltaba decir qué pasa con 5 intentos fallidos desde la PC de caja, que no tiene fila de dispositivo; `creada_en` y `ocurrido_en` chocaban con la regla del proyecto de que toda tabla lleva `creado_en`; la instalación no podía verse desde un celular porque su ruta es solo local; faltaba `expira_en` en la respuesta de entrar; y revocar un aparato todavía pendiente no estaba descrito. Queda pendiente de Dave una sola decisión: si cambiarle el PIN a alguien debe cerrar sus sesiones abiertas (ver `docs/fases/2-seguridad-de-acceso.md`).
