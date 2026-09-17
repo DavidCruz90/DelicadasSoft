@@ -26,9 +26,16 @@ export function Menu() {
   };
   const guardarProducto = async (e: Event) => {
     e.preventDefault(); setError(null);
+    const necesitaStockInicial = (!editandoId && form.controla_stock) ||
+      (!!editandoId && form.controla_stock && !productos.find((p) => p.id === editandoId)?.controla_stock);
+    let stockInicial: number | undefined;
+    if (necesitaStockInicial) {
+      const limpio = String(form.stock_actual).trim();
+      if (!/^\d+$/.test(limpio)) { setError('Escribe el stock, un número entero'); return; }
+      stockInicial = Number(limpio);
+    }
     const cuerpo: any = { categoria_id: form.categoria_id, nombre: form.nombre, descripcion: form.descripcion || null, precio: form.precio, controla_stock: form.controla_stock };
-    if (!editandoId && form.controla_stock) cuerpo.stock_actual = Number(form.stock_actual);
-    if (editandoId && form.controla_stock && !productos.find((p) => p.id === editandoId)?.controla_stock) cuerpo.stock_actual = Number(form.stock_actual);
+    if (necesitaStockInicial) cuerpo.stock_actual = stockInicial;
     try {
       if (editandoId) await api.patch(`/api/admin/productos/${editandoId}`, cuerpo);
       else await api.post('/api/admin/productos', cuerpo);
@@ -37,16 +44,21 @@ export function Menu() {
   };
   const editar = (p: any) => { setEditandoId(p.id); setForm({ categoria_id: p.categoria_id, nombre: p.nombre, descripcion: p.descripcion ?? '', precio: p.precio, controla_stock: p.controla_stock, stock_actual: p.stock_actual ?? '' }); };
   const ajustarStock = async (p: any) => {
+    setError(null);
     const stock = prompt(`Nuevo stock de ${p.nombre} (actual ${p.stock_actual})`); if (stock === null) return;
+    const stockLimpio = stock.trim();
+    if (!/^\d+$/.test(stockLimpio)) { setError('Escribe el stock, un número entero'); return; }
     const motivo = prompt('Motivo del ajuste'); if (motivo === null) return;
-    try { await api.post(`/api/admin/productos/${p.id}/stock`, { stock: Number(stock), motivo }); }
+    try { await api.post(`/api/admin/productos/${p.id}/stock`, { stock: Number(stockLimpio), motivo }); }
     catch (err: any) { setError(err.message); }
   };
   const alternarActivo = async (p: any) => {
+    setError(null);
     try { await api.patch(`/api/admin/productos/${p.id}`, { activo: !p.activo }); } catch (err: any) { setError(err.message); }
   };
   const subirFoto = async (p: any, archivo: File | undefined) => {
     if (!archivo) return;
+    setError(null);
     try { await api.subirArchivo(`/api/admin/productos/${p.id}/foto`, 'foto', archivo); } catch (err: any) { setError(err.message); }
   };
   const nombreCat = (id: string) => categorias.find((c) => c.id === id)?.nombre ?? '';

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api } from '../api';
+import { useEventos } from '../eventos';
 import { Aviso } from '../componentes/Aviso';
 
 export function Meseros() {
@@ -8,12 +9,14 @@ export function Meseros() {
   const [error, setError] = useState<string | null>(null);
   const cargar = () => api.get('/api/admin/meseros').then(setLista);
   useEffect(() => { cargar(); }, []);
+  useEventos(['config'], () => cargar());
   const crear = async (e: Event) => {
     e.preventDefault(); setError(null);
     try { await api.post('/api/admin/meseros', { nombre }); setNombre(''); await cargar(); }
     catch (err: any) { setError(err.message); }
   };
   const alternar = async (m: any) => {
+    setError(null);
     try { await api.patch(`/api/admin/meseros/${m.id}`, { activo: !m.activo }); await cargar(); }
     catch (err: any) { setError(err.message); }
   };
