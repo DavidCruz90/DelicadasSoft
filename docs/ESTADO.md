@@ -33,12 +33,11 @@ Actualizado: 2026-09-17 (ronda de arreglo 1 de la Tarea 5)
 4. Nombre del local, cantidad de mesas, umbral de stock bajo (propuesto 5), propina sugerida.
 
 ## Siguiente paso exacto
-- Ejecutar la Tarea 6 del plan 1, y seguir con el resto del plan 1, tarea por tarea y en orden.
-- Orquestador: `claude-fable-5-1` con `superpowers:subagent-driven-development` (o `superpowers:executing-plans` en sesión nueva sin subagentes). Despacha cada tarea al modelo que el plan indica en su encabezado (`claude-sonnet-5` en las 7 tareas del plan 1) con `superpowers:test-driven-development`, y la revisión a `claude-fable-5-1` con `superpowers:requesting-code-review`. Cierre de cada tarea con `superpowers:verification-before-completion`.
-- Entrada: `CLAUDE.md`, `docs/superpowers/plans/2026-09-15-plan-1-cimientos.md`, `docs/superpowers/specs/2026-09-12-nucleo-pos-design.md`.
-- Prerrequisito de entorno: Docker en marcha (`docker ps` responde). Node 22+.
-- Salida: código en `src/` y `tests/`, un commit por tarea en `origin/main`.
-- Terminado cuando: `npm run typecheck && npm run build && npm test` pasa y la verificación manual de la Task 7 del plan 1 se cumplió, y `docs/ESTADO.md` dice "Plan 1 terminado".
+- Plan 1: tareas 1 a 5 terminadas y revisadas (58 pruebas). Ejecutar la tarea 6 (web base con Preact y Vite) y luego la 7 (pantalla de admin).
+- Orquestador: `superpowers:subagent-driven-development`. Ejecutor de cada tarea: el modelo que indica el encabezado del plan (`claude-sonnet-5` en las tareas 6 y 7) con `superpowers:test-driven-development`. Revisor: `claude-fable-5-1` con `superpowers:requesting-code-review`, siempre con sondeo en vivo. Cierre con `superpowers:verification-before-completion`.
+- Entrada: `CLAUDE.md`, `docs/APRENDIZAJES.md`, `docs/superpowers/plans/2026-09-15-plan-1-cimientos.md`, spec.
+- Prerrequisito de entorno: `open -a OrbStack`, `docker start cafeteria-pg`. Node 22+.
+- Terminado cuando: `npm run typecheck && npm run build && npm test` pasa, la verificación manual de la tarea 7 se cumplió, y este archivo dice "Plan 1 terminado".
 
 ## Pasos posteriores, en orden
 1. Ejecutar plan 2 (modelos por tarea en su encabezado: Fable en tareas 3 y 4, Sonnet en el resto). Terminado cuando el día completo de la Task 8 se verificó a mano.
