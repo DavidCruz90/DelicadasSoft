@@ -1,7 +1,7 @@
 # Fase 2 — Seguridad para entrar al sistema
 
 Fase 2 de 5. Las demás están en esta misma carpeta, una por fase.
-**Estado:** aprobado por Dave el 2026-09-17. Escribiendo el plan de trabajo; después se construye.
+**Estado:** aprobado por Dave el 2026-09-17. Plan de trabajo escrito el mismo día; ahora se construye. Cuando esté listo, aquí aparecen los pasos para probarlo.
 
 ## Pendientes
 
