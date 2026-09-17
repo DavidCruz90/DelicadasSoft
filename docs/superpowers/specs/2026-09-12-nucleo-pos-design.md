@@ -86,7 +86,7 @@ Nombres de tabla en singular, en español, sin tildes. Todas con `id` (uuid), `c
 - `nombre`, `orden`, `activa`.
 
 **producto**
-- `categoria_id`, `nombre`, `descripcion`, `precio`, `foto` (ruta relativa en `fotos/`, nulo si no hay), `activo`, `controla_stock` (booleano), `stock_actual` (entero, nulo si no controla), `orden`.
+- `categoria_id`, `nombre`, `descripcion`, `precio`, `foto` (dirección web con la que la sirve el servidor, `/fotos/<id del producto>.<extensión>`, nulo si no hay; el archivo vive en la carpeta `fotos/`), `activo`, `controla_stock` (booleano), `stock_actual` (entero, nulo si no controla), `orden`.
 
 **movimiento_stock**
 - `producto_id`, `jornada_id` (nulo si fuera de jornada), `cantidad` (positiva entra, negativa sale), `stock_resultante`, `origen` (enum: `venta`, `anulacion`, `ajuste_manual`, `apertura`), `motivo` (texto libre, obligatorio en ajuste manual), `pedido_item_id` (nulo salvo venta/anulación).

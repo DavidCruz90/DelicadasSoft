@@ -21,6 +21,9 @@ Actualizado: 2026-09-17 (Tarea 7 del plan 1, pantalla de admin)
 - **`actualizado_en` se actualiza solo** vía `$onUpdate` de Drizzle, que cubre las escrituras hechas con Drizzle pero no las hechas con SQL crudo. Si en algún plan se escribe con SQL crudo, hay que poner el campo a mano o añadir un disparador.
 - **Faltan índices sobre claves foráneas de alto tráfico** (`pedido_item.ronda_id`, `pago.cuenta_id`, `abono.encargo_id`, `encargo_item.encargo_id`). Irrelevante en una base de este tamaño; revisar solo si aparece lentitud.
 
+## Riesgos aceptados
+- **Sin contraseñas.** Es la decisión de diseño del 2026-09-12: cualquier dispositivo conectado a la WiFi del local que conozca la dirección puede abrir `/admin` y cambiar precios, stock o el menú. Los cambios de stock dejan rastro en movimientos; los de precio, no. Mitigación práctica: usar una WiFi con contraseña y no compartirla con clientes. Si algún día molesta, se añade un PIN para admin.
+
 ## Menú real (2026-09-17)
 - Carta de Delicadas transcrita: `docs/menu/menu-delicadas.md`. En formato del sistema: `src/servidor/recursos/menu-delicadas.csv` (28 productos, 4 categorías).
 - Decisiones de Dave: categorías Tradicionales, Chochos y ceviches, Tostadas y sanduches, Bebidas; stock contado en tortillas de maíz con queso, quimbolitos, humitas y tamales de gallina; ceviche familiar con sardina y con atún como dos productos; el menú ficticio de ejemplo se reemplaza por el real.
@@ -34,10 +37,16 @@ Actualizado: 2026-09-17 (Tarea 7 del plan 1, pantalla de admin)
 4. Nombre del local, cantidad de mesas, umbral de stock bajo (propuesto 5), propina sugerida.
 
 ## Siguiente paso exacto
-- Plan 1: tareas 1 a 7 terminadas (66 pruebas). La tarea 7 (pantalla de admin) está pendiente de revisión de `claude-fable-5-1` contra `.superpowers/sdd/2026-09-15-plan-1-cimientos/task-7-report.md` y `task-7-brief.md`, con sondeo en vivo.
-- Tras esa revisión: cerrar el plan 1 (sección "Cierre del plan 1" al final de `docs/superpowers/plans/2026-09-15-plan-1-cimientos.md`, modelo `claude-sonnet-5`, skill `superpowers:verification-before-completion`, revisor `claude-fable-5-1` confirmando que `ESTADO.md`/`BITACORA.md` reflejan la salida real): ejecutar `npm run typecheck && npm run build && npm test` una última vez, pegar la salida resumida en `docs/BITACORA.md`, poner este archivo como "Plan 1 terminado" con siguiente paso "escribir el plan 2 (Operación) con modelo `claude-fable-5-1` y skill `superpowers:writing-plans`, entrada: la spec y `docs/superpowers/plans/2026-09-15-plan-1-cimientos.md`", y commitear "Cierre del plan 1: cimientos listos".
-- Orquestador: `superpowers:subagent-driven-development`. Entrada: `CLAUDE.md`, `docs/APRENDIZAJES.md`, `docs/superpowers/plans/2026-09-15-plan-1-cimientos.md`, spec.
-- Prerrequisito de entorno: `open -a OrbStack`, `docker start cafeteria-pg`. Node 22+.
+- **Plan 1 terminado** el 2026-09-17 (commits 8aebf5a..06bf176). Verificado: `npm run typecheck`, `npm run build` y 85 pruebas en verde. Revisión final de toda la rama: sin hallazgos críticos, sus cuatro condiciones aplicadas y re-revisadas.
+- Siguiente: ejecutar el plan 2, `docs/superpowers/plans/2026-09-15-plan-2-operacion.md` (8 tareas: jornada, pedidos, rondas con stock, cuentas divididas, pagos, clientes, ticket, pantallas de mesero y caja).
+- Orquestador: `superpowers:subagent-driven-development`. Ejecutor de cada tarea: el modelo del encabezado del plan (`claude-fable-5-1` en las tareas 3 y 4 por concurrencia y dinero; `claude-sonnet-5` en el resto) con `superpowers:test-driven-development`. Revisor: `claude-fable-5-1` con `superpowers:requesting-code-review` y sondeo en vivo. Cierre de cada tarea con `superpowers:verification-before-completion`.
+- Prerrequisito de entorno: `open -a OrbStack` y `docker start cafeteria-pg`. Node 22+.
+- Antes de empezar, el plan 2 debe hacer estos cambios que el plan 1 dejó apuntados: mover la consulta de jornada que hoy está dentro de `/api/estado` al módulo de jornada de la tarea 2; usar `exigirMonto` con mínimo para pagos, abonos y egresos; y usar el tipo `Tx` exportado desde `db/conexion.ts`.
+
+## Cómo probarlo hoy
+1. `open -a OrbStack`, esperar, y `docker start cafeteria-pg`.
+2. En el proyecto: `npm run build` y luego `npm run dev`.
+3. Abrir `http://127.0.0.1:3000/admin`. Funcionan configuración, meseros y menú con stock y fotos. `/mesero` y `/caja` dirán que están en construcción hasta el plan 2.
 
 ## Pasos posteriores, en orden
 1. Ejecutar plan 2 (modelos por tarea en su encabezado: Fable en tareas 3 y 4, Sonnet en el resto). Terminado cuando el día completo de la Task 8 se verificó a mano.
