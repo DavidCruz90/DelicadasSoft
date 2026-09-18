@@ -9,7 +9,7 @@ import type { Db } from './db/conexion';
 import { config } from './config';
 import { crearBusEventos, rutaEventos, type BusEventos } from './eventos';
 import { obtenerConfiguracion, rutasConfiguracion } from './modulos/configuracion';
-import { rutasMeseros } from './modulos/meseros';
+import { rutasUsuarios } from './modulos/usuarios';
 import { rutasCatalogo } from './modulos/catalogo';
 import { jornada } from './db/schema';
 
@@ -89,7 +89,7 @@ export async function crearApp({ db }: { db: Db }) {
   });
   rutaEventos(app);
   rutasConfiguracion(app);
-  rutasMeseros(app);
+  rutasUsuarios(app);
   rutasCatalogo(app);
 
   return app;
