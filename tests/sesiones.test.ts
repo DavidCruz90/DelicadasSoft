@@ -209,13 +209,35 @@ test('expiración por inactividad: caja 30 minutos, admin 15, mesero nunca; cada
   expect(filaMesero.expira_en).toBeNull();
 });
 
-test('un usuario desactivado deja de poder usar su sesión', async () => {
+test('desactivar a un usuario cierra sus sesiones al instante y reactivarlo no las revive; las de otro usuario siguen vivas', async () => {
   const u = await crearUsuarioDePrueba(ctx.db, 'Temporal', 'mesero', '5555');
+  const otro = await crearUsuarioDePrueba(ctx.db, 'Otro temporal', 'mesero', '6666');
   const cookie = cookieSesionDe(await entrar(u.id, '5555'));
+  const cookieOtro = cookieSesionDe(await entrar(otro.id, '6666'));
+  expect((await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...conSesion(cookie) })).statusCode).toBe(200);
+  // Renombrar no cierra la sesión: solo pasar de activo a inactivo.
+  expect((await ctx.app.inject({ method: 'PATCH', url: `/api/admin/usuarios/${u.id}`, payload: { nombre: 'Temporal R.' } })).statusCode).toBe(200);
   expect((await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...conSesion(cookie) })).statusCode).toBe(200);
   const off = await ctx.app.inject({ method: 'PATCH', url: `/api/admin/usuarios/${u.id}`, payload: { activo: false } });
   expect(off.statusCode).toBe(200);
-  expect((await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...conSesion(cookie) })).statusCode).toBe(401);
+  const negada = await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...conSesion(cookie) });
+  expect(negada.statusCode).toBe(401);
+  expect(negada.json().codigo).toBe('sin_sesion');
+  // La sesión queda cerrada en la base, no solo negada por el usuario inactivo:
+  // una sesión de mesero no vence nunca y quedaría latente hasta la reactivación.
+  const [fila] = await ctx.sql`SELECT cerrada_en FROM sesion WHERE token_hash = ${huellaDe(cookie)}`;
+  expect(fila.cerrada_en).not.toBeNull();
+  // Reactivar al usuario no revive la cookie vieja: hay que volver a escribir el PIN.
+  const on = await ctx.app.inject({ method: 'PATCH', url: `/api/admin/usuarios/${u.id}`, payload: { activo: true } });
+  expect(on.statusCode).toBe(200);
+  const revivida = await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...conSesion(cookie) });
+  expect(revivida.statusCode).toBe(401);
+  expect(revivida.json().codigo).toBe('sin_sesion');
+  expect((await entrar(u.id, '5555')).statusCode).toBe(201);
+  // Las sesiones de otro usuario no se tocan.
+  expect((await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...conSesion(cookieOtro) })).statusCode).toBe(200);
+  const [filaOtro] = await ctx.sql`SELECT cerrada_en FROM sesion WHERE token_hash = ${huellaDe(cookieOtro)}`;
+  expect(filaOtro.cerrada_en).toBeNull();
 });
 
 test('salir cierra la sesión, borra la cookie y la siguiente petición responde 401', async () => {

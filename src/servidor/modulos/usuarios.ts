@@ -111,11 +111,24 @@ export async function editarUsuario(db: Db, id: string, datos: { nombre?: unknow
 
     try {
       const [u] = await tx.update(usuario).set(cambios).where(eq(usuario.id, id)).returning();
+      // Pasar de activo a inactivo cierra sus sesiones en la misma transacción
+      // (mismo criterio que cambiar el PIN). Sin esto la sesión solo quedaba
+      // negada mientras el usuario estuviera inactivo: una sesión de mesero no
+      // vence nunca, y al reactivarlo la cookie vieja volvía a entrar sin PIN.
+      // Renombrar o cambiar de rol no cierra nada: el rol se lee en cada petición.
+      if (existente.activo && !activoFinal) await cerrarSesionesDe(tx, id);
       return publico(u);
     } catch (err) {
       throw traducirConflictoNombre(err);
     }
   });
+}
+
+// Cierra todas las sesiones vivas de un usuario. La tabla `sesion` existe desde
+// Task 1; no se importa `sesiones.ts` para no crear dependencia hacia atrás.
+async function cerrarSesionesDe(tx: Db | Tx, id: string) {
+  await tx.update(sesion).set({ cerrada_en: new Date() })
+    .where(and(eq(sesion.usuario_id, id), isNull(sesion.cerrada_en)));
 }
 
 // Decisión de Dave del 2026-09-17: cambiarle el PIN a alguien lo saca al
@@ -131,8 +144,7 @@ export async function cambiarPin(db: Db, id: string, datos: { pin?: unknown }): 
   return db.transaction(async (tx) => {
     const [u] = await tx.update(usuario).set({ pin_hash }).where(eq(usuario.id, id)).returning();
     if (!u) throw new NoEncontrado('El usuario no existe');
-    await tx.update(sesion).set({ cerrada_en: new Date() })
-      .where(and(eq(sesion.usuario_id, id), isNull(sesion.cerrada_en)));
+    await cerrarSesionesDe(tx, id);
     return publico(u);
   });
 }
