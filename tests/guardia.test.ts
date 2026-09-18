@@ -5,7 +5,7 @@ import type { FastifyRequest, InjectOptions } from 'fastify';
 import { crearAppDePrueba } from './ayuda/app';
 import { IP_REMOTA, abrirSesionDePrueba, autorizarDispositivoDePrueba, crearUsuarioDePrueba } from './ayuda/acceso';
 import { crearApp } from '../src/servidor/app';
-import { accesoExigido } from '../src/servidor/seguridad/guardia';
+import { accesoExigido, esLocal } from '../src/servidor/seguridad/guardia';
 import { ADMIN, SOLO_DISPOSITIVO } from '../src/servidor/seguridad/acceso';
 import { ROLES, type Rol } from '../src/compartido/roles';
 
@@ -240,6 +240,60 @@ test('accesoExigido decide por la declaración de la ruta elegida, no por el tex
   expect(accesoExigido(peticion('/no-es-api'))).toBeNull();
   expect(accesoExigido(peticion('/admin'))).toBeNull();
   expect(accesoExigido(peticion('/fotos/x.jpg'))).toBeNull();
+});
+
+// "PC de caja" = IP de bucle local Y cabecera Host local (spec 5.2.6, regla
+// 31, revisión de la Task 5). Solo con la IP, una página maliciosa abierta en
+// el navegador de la PC de caja con un dominio que apunte a 127.0.0.1
+// (rebinding de DNS) llegaba con IP local y su propio nombre en Host, y se
+// hacía pasar por la PC de caja. app.inject manda Host localhost:80 por
+// omisión (light-my-request, parse-url.js), así que las pruebas existentes
+// siguen siendo locales; el caso "sin Host" solo se puede armar a mano.
+function desdeIp(ip: string, host?: string): FastifyRequest {
+  return { ip, headers: host === undefined ? {} : { host } } as unknown as FastifyRequest;
+}
+
+test('esLocal exige IP de bucle local y Host local exacto, con o sin puerto numérico, sin distinguir mayúsculas', () => {
+  for (const ip of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+    for (const host of ['localhost', 'localhost:3000', 'LOCALHOST:3000', '127.0.0.1', '127.0.0.1:3000', '[::1]', '[::1]:3000', '[::1]:80']) {
+      expect(esLocal(desdeIp(ip, host)), `${ip} con Host ${host}`).toBe(true);
+    }
+  }
+  const ajenos = [
+    'evil.com', 'evil.com:3000', 'localhost.evil.com', '127.0.0.1.evil.com', 'evil.com#@localhost',
+    'localhost:3000@evil.com', 'localhost@evil.com', '127.0.0.2', '0.0.0.0', '[::2]', '[::1]x', '[::1]:',
+    'localhost:', 'localhost:abc', 'localhost:3000:4000', ' ', '',
+  ];
+  for (const host of ajenos) expect(esLocal(desdeIp('127.0.0.1', host)), `Host "${host}"`).toBe(false);
+  expect(esLocal(desdeIp('127.0.0.1')), 'sin cabecera Host').toBe(false);
+  // Y con Host local pero IP de la red tampoco: las dos cosas a la vez.
+  expect(esLocal(desdeIp(IP_REMOTA, 'localhost:3000'))).toBe(false);
+});
+
+test('desde 127.0.0.1 con Host ajeno (rebinding de DNS) no es la PC de caja: instalación 403 solo_local, capa 1 exigida y la sesión local no vale', async () => {
+  const hostAjeno = 'evil.com:3000';
+  const instalar = await ctx.app.inject({ method: 'POST', url: '/api/instalacion', headers: { host: hostAjeno, cookie: '' }, payload: { nombre: 'Intruso', pin: '1234' } });
+  expect(instalar.statusCode).toBe(403);
+  expect(instalar.json().codigo).toBe('solo_local');
+  const estado = await ctx.app.inject({ method: 'GET', url: '/api/estado', headers: { host: hostAjeno, cookie: '' } });
+  expect(estado.statusCode).toBe(403);
+  expect(estado.json().codigo).toBe('dispositivo_no_autorizado');
+  // La sesión del admin de prueba nació en la PC de caja (dispositivo nulo):
+  // con Host ajeno, aunque la capa 1 pase por un aparato autorizado, la sesión
+  // ya no está atada a "aquí" y responde 401.
+  const conSesion = await ctx.app.inject({ method: 'GET', url: '/api/sesion', headers: { host: hostAjeno, cookie: `${aparato.cookie}; ${ctx.cookieAdmin}` } });
+  expect(conSesion.statusCode).toBe(401);
+  expect(conSesion.json().codigo).toBe('sin_sesion');
+  // Con Host local, las mismas peticiones son de la PC de caja.
+  for (const host of ['localhost', 'localhost:3000', '127.0.0.1:3000', '[::1]:3000', 'LOCALHOST:3000']) {
+    expect((await ctx.app.inject({ method: 'GET', url: '/api/estado', headers: { host, cookie: '' } })).statusCode, host).toBe(200);
+    expect((await ctx.app.inject({ method: 'GET', url: '/api/sesion', headers: { host } })).statusCode, host).toBe(200);
+  }
+  for (const host of ['localhost.evil.com', '127.0.0.1.evil.com', 'localhost:3000@evil.com', '127.0.0.2', '0.0.0.0', 'localhost:']) {
+    const r = await ctx.app.inject({ method: 'GET', url: '/api/estado', headers: { host, cookie: '' } });
+    expect(r.statusCode, host).toBe(403);
+    expect(r.json().codigo, host).toBe('dispositivo_no_autorizado');
+  }
 });
 
 // Forma absoluta por un socket real: app.inject la normaliza, así que se

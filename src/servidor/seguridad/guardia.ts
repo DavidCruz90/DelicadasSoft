@@ -24,10 +24,44 @@ declare module 'fastify' {
 // dirección real del socket y nadie puede fingir ser local desde la red.
 // Sin dirección conocida (req.ip vacío), se trata como remoto: ante la duda,
 // cerrado.
+//
+// La IP sola no basta (spec 5.2.6, regla 31; revisión de la Task 5): una
+// página maliciosa abierta en el navegador de la PC de caja, con un dominio
+// propio que apunte a 127.0.0.1 (rebinding de DNS), llega con IP local pero
+// con su propio nombre en la cabecera Host. Por eso "local" exige las dos
+// cosas: IP de bucle local Y Host exactamente uno de los nombres locales,
+// con o sin puerto numérico. El navegador siempre pone en Host el nombre
+// con el que se abrió la página, y una página de evil.com no puede fingirlo.
 const IPS_LOCALES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+const NOMBRES_LOCALES = new Set(['localhost', '127.0.0.1', '[::1]']);
+const PUERTO = /^\d{1,5}$/;
+
+// El nombre de la cabecera Host sin su puerto, o null si la cabecera falta o
+// no tiene la forma "nombre" o "nombre:puerto" (puerto vacío, con letras o
+// con cualquier cosa después del número: null). Comparación exacta, nunca
+// "empieza por" ni "contiene": localhost.evil.com o localhost:3000@evil.com
+// no son locales.
+function nombreDeHost(host: string | undefined): string | null {
+  if (typeof host !== 'string') return null;
+  const limpio = host.trim().toLowerCase();
+  if (!limpio) return null;
+  if (limpio.startsWith('[')) {
+    const cierre = limpio.indexOf(']');
+    if (cierre < 0) return null;
+    const resto = limpio.slice(cierre + 1);
+    if (resto !== '' && !(resto.startsWith(':') && PUERTO.test(resto.slice(1)))) return null;
+    return limpio.slice(0, cierre + 1);
+  }
+  const separador = limpio.indexOf(':');
+  if (separador < 0) return limpio;
+  if (!PUERTO.test(limpio.slice(separador + 1))) return null;
+  return limpio.slice(0, separador);
+}
 
 export function esLocal(req: FastifyRequest): boolean {
-  return IPS_LOCALES.has(req.ip);
+  if (!IPS_LOCALES.has(req.ip)) return false;
+  const nombre = nombreDeHost(req.headers.host);
+  return nombre !== null && NOMBRES_LOCALES.has(nombre);
 }
 
 export function exigirLocal(req: FastifyRequest) {
