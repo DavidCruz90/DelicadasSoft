@@ -35,6 +35,34 @@ export function exigirLocal(req: FastifyRequest) {
   if (!esLocal(req)) throw new ErrorAcceso(403, 'Esta operación solo se puede hacer desde la PC de caja', 'solo_local');
 }
 
+// Normaliza el texto crudo de la URL como lo hace el router (find-my-way)
+// antes de elegir la ruta: quita esquema y autoridad de una petición en
+// forma absoluta (GET http://x/api/estado), quita la query y decodifica el
+// porcentaje (%61 → a). Solo sirve para las peticiones que NO encontraron
+// ruta; una codificación rota se trata como API (ante la duda, cerrado).
+function pareceApi(url: string): boolean {
+  let ruta = url.split('?')[0].replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '');
+  try {
+    ruta = decodeURIComponent(ruta);
+  } catch {
+    return true;
+  }
+  return ruta.startsWith('/api/');
+}
+
+// Qué acceso exige esta petición, o null si no es de la API. Decide por la
+// declaración de la ruta que el router eligió, nunca por el texto de req.url:
+// el router decodifica y normaliza la URL antes de elegir la ruta, así que
+// /%61pi/estado o http://x/api/estado ejecutan el manejador de /api/estado
+// aunque req.url no empiece por /api/ (hallazgo C1 de la revisión de la
+// Task 3). El texto crudo solo decide cuando no hay ruta (404 bajo /api/),
+// que se trata como lo más restrictivo para no revelar nada.
+export function accesoExigido(req: FastifyRequest): Acceso | null {
+  const declarado = req.routeOptions?.config?.acceso;
+  if (declarado) return declarado;
+  return pareceApi(req.url) ? ADMIN : null;
+}
+
 // El guardia único (spec sección 3). Se registra ANTES que cualquier ruta.
 //  - onRoute: cada ruta bajo /api/ debe declarar config.acceso; si no, el
 //    arranque falla. Así una ruta nueva nunca nace abierta por olvido.
@@ -54,12 +82,8 @@ export function registrarGuardia(app: FastifyInstance) {
   });
 
   app.addHook('onRequest', async (req) => {
-    const ruta = req.url.split('?')[0];
-    if (!ruta.startsWith('/api/')) return;
-    // Una URL que no corresponde a ninguna ruta (404) no tiene declaración:
-    // se trata como la más restrictiva, así el 404 no revela nada a un
-    // aparato sin autorizar.
-    const acceso: Acceso = req.routeOptions?.config?.acceso ?? ADMIN;
+    const acceso = accesoExigido(req);
+    if (!acceso) return;
 
     // Capa 1: ¿el dispositivo está autorizado? La PC de caja se la salta.
     if (!esLocal(req)) {
