@@ -26,12 +26,23 @@ export async function cifrarPin(pin: string): Promise<string> {
   return `${sal.toString('hex')}:${clave.toString('hex')}`;
 }
 
+// Sal y clave tienen que medir exactamente lo que escribe cifrarPin (en
+// hexadecimal, el doble de bytes). No basta con "hexadecimal no vacío": una
+// clave de largo impar la decodifica Buffer a medias y verificaba 33 de cada
+// 10 000 PIN; una clave recortada verificaba el PIN correcto porque los
+// primeros bytes de la derivación coinciden. Desde que verificarPin decide
+// accesos, un hash con otra forma se rechaza sin llamar a scrypt.
+const PATRON_SAL = new RegExp(`^[0-9a-f]{${LARGO_SAL * 2}}$`);
+const PATRON_CLAVE = new RegExp(`^[0-9a-f]{${LARGO_CLAVE * 2}}$`);
+
 export async function verificarPin(pin: string, hash: string): Promise<boolean> {
-  const [salHex, claveHex] = hash.split(':');
-  if (!salHex || !claveHex || !/^[0-9a-f]+$/.test(salHex) || !/^[0-9a-f]+$/.test(claveHex)) return false;
+  const partes = hash.split(':');
+  if (partes.length !== 2) return false;
+  const [salHex, claveHex] = partes;
+  if (!PATRON_SAL.test(salHex) || !PATRON_CLAVE.test(claveHex)) return false;
   const esperado = Buffer.from(claveHex, 'hex');
-  const clave = await scrypt(pin, Buffer.from(salHex, 'hex'), esperado.length, PARAMETROS);
-  return clave.length === esperado.length && timingSafeEqual(clave, esperado);
+  const clave = await scrypt(pin, Buffer.from(salHex, 'hex'), LARGO_CLAVE, PARAMETROS);
+  return timingSafeEqual(clave, esperado);
 }
 
 // Hash de "0000" con sal fija (verificado el 2026-09-17 con scryptSync y estos

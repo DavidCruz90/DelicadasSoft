@@ -28,6 +28,23 @@ test('cifrarPin usa sal distinta cada vez y verificarPin distingue el PIN correc
 test('verificarPin devuelve false ante un hash malformado en vez de lanzar', async () => {
   expect(await verificarPin('1234', 'no-es-un-hash')).toBe(false);
   expect(await verificarPin('1234', '')).toBe(false);
+  expect(await verificarPin('1234', 'ab:abc')).toBe(false);
+});
+
+// Desde que verificarPin decide accesos, la sal y la clave tienen que medir
+// exactamente lo que escribe cifrarPin (16 y 32 bytes en hexadecimal). Sin
+// esa comprobación, una clave de largo impar verificaba 33 de cada 10 000
+// PIN, y una clave recortada (los primeros bytes de la derivación son los
+// mismos) verificaba el PIN correcto aunque el hash esté roto.
+test('verificarPin exige el largo exacto de sal y clave: recortadas, alargadas o de largo impar dan false aunque el PIN sea el correcto', async () => {
+  const valido = await cifrarPin('1234');
+  const [sal, clave] = valido.split(':');
+  expect(await verificarPin('1234', `${sal}:${clave.slice(0, -1)}`)).toBe(false); // clave de largo impar
+  expect(await verificarPin('1234', `${sal}:${clave.slice(0, -2)}`)).toBe(false); // clave recortada un byte
+  expect(await verificarPin('1234', `${sal}:${clave}ab`)).toBe(false); // clave alargada
+  expect(await verificarPin('1234', `${sal.slice(0, -2)}:${clave}`)).toBe(false); // sal recortada
+  expect(await verificarPin('1234', `${sal}ab:${clave}`)).toBe(false); // sal alargada
+  expect(await verificarPin('1234', valido)).toBe(true);
 });
 
 test('el hash señuelo es un hash válido de 0000 (sirve para igualar tiempos, nunca para entrar)', async () => {
