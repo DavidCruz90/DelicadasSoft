@@ -12,6 +12,7 @@ import { obtenerConfiguracion, rutasConfiguracion } from './modulos/configuracio
 import { rutasUsuarios } from './modulos/usuarios';
 import { rutasCatalogo } from './modulos/catalogo';
 import { rutasDispositivos } from './modulos/dispositivos';
+import { rutasSesion } from './modulos/sesiones';
 import { registrarGuardia } from './seguridad/guardia';
 import { SOLO_DISPOSITIVO } from './seguridad/acceso';
 import { jornada } from './db/schema';
@@ -48,7 +49,8 @@ export async function crearApp({ db }: { db: Db }) {
   app.decorate('db', db);
   app.decorate('bus', crearBusEventos((err) => app.log.error(err)));
   // El guardia va antes que cualquier ruta: su onRoute exige config.acceso
-  // a toda ruta bajo /api/ y su onRequest aplica la capa 1 (dispositivo).
+  // a toda ruta bajo /api/ y su onRequest aplica las tres capas: dispositivo,
+  // sesión y rol.
   registrarGuardia(app);
 
   await app.register(multipart);
@@ -99,6 +101,7 @@ export async function crearApp({ db }: { db: Db }) {
   rutasUsuarios(app);
   rutasCatalogo(app);
   rutasDispositivos(app);
+  rutasSesion(app);
 
   return app;
 }

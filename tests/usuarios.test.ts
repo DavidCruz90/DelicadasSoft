@@ -34,7 +34,7 @@ test('crear, listar, editar y desactivar usuarios; nunca sale el PIN', async () 
   expect(e.json()).toMatchObject({ activo: false, rol: 'caja' });
   sinDatosDelPin(e.json());
   const l = await ctx.app.inject({ method: 'GET', url: RUTA });
-  expect(l.json()).toHaveLength(1);
+  expect(l.json()).toHaveLength(2); // Carlos y el admin de prueba
   sinDatosDelPin(l.json());
 });
 
@@ -205,9 +205,9 @@ test('PATCH sin cuerpo responde 200 con el usuario sin cambios', async () => {
 // --- Regla 27: último administrador activo ---
 
 test('el único admin activo no se puede desactivar ni cambiar de rol', async () => {
-  const a = await crear('Admin uno', 'admin');
-  expect(a.statusCode).toBe(201);
-  const id = a.json().id;
+  // El admin de prueba (ctx.admin) es el único admin activo de partida y
+  // nunca se desactiva: su sesión es la que usan todas las peticiones.
+  const id = ctx.admin.id;
   const desactivar = await ctx.app.inject({ method: 'PATCH', url: `${RUTA}/${id}`, payload: { activo: false } });
   expect(desactivar.statusCode).toBe(409);
   expect(desactivar.json().error).toBe('No se puede desactivar ni cambiar de rol al último administrador activo');
@@ -216,24 +216,22 @@ test('el único admin activo no se puede desactivar ni cambiar de rol', async ()
   // Renombrarlo sí se puede: sigue siendo admin activo.
   const renombrar = await ctx.app.inject({ method: 'PATCH', url: `${RUTA}/${id}`, payload: { nombre: 'Admin principal' } });
   expect(renombrar.statusCode).toBe(200);
-  // Con un segundo admin, el primero ya se puede desactivar; el segundo entonces no.
+  // Con un segundo admin, ese segundo se puede desactivar; entonces el primero vuelve a ser el último.
   const b = await crear('Admin dos', 'admin');
-  const desactivarA = await ctx.app.inject({ method: 'PATCH', url: `${RUTA}/${id}`, payload: { activo: false } });
-  expect(desactivarA.statusCode).toBe(200);
   const desactivarB = await ctx.app.inject({ method: 'PATCH', url: `${RUTA}/${b.json().id}`, payload: { activo: false } });
-  expect(desactivarB.statusCode).toBe(409);
-  // Reactivar al primero deja dos otra vez.
-  const reactivarA = await ctx.app.inject({ method: 'PATCH', url: `${RUTA}/${id}`, payload: { activo: true } });
-  expect(reactivarA.statusCode).toBe(200);
+  expect(desactivarB.statusCode).toBe(200);
+  const desactivarA = await ctx.app.inject({ method: 'PATCH', url: `${RUTA}/${id}`, payload: { activo: false } });
+  expect(desactivarA.statusCode).toBe(409);
+  const reactivarB = await ctx.app.inject({ method: 'PATCH', url: `${RUTA}/${b.json().id}`, payload: { activo: true } });
+  expect(reactivarB.statusCode).toBe(200);
 });
 
 test('carrera determinista: dos desactivaciones simultáneas de los dos únicos admins dejan al menos uno activo', async () => {
-  // Estado de partida: exactamente dos admins activos (los de la prueba anterior).
   const lista = (await ctx.app.inject({ method: 'GET', url: RUTA })).json() as { id: string; rol: string; activo: boolean }[];
   const admins = lista.filter((u) => u.rol === 'admin' && u.activo);
   expect(admins).toHaveLength(2);
-  const [a, b] = admins;
-
+  const a = ctx.admin;
+  const b = admins.find((u) => u.id !== a.id)!;
   // Una transacción externa toma el bloqueo de la fila de B, se lanza el PATCH
   // que desactiva a A sin esperarlo, se desactiva a B dentro de la transacción
   // externa y se confirma. Con el código correcto, el PATCH bloquea a TODOS
@@ -252,7 +250,6 @@ test('carrera determinista: dos desactivaciones simultáneas de los dos únicos 
   expect(r.statusCode).toBe(409);
   const [filaA] = await ctx.sql`SELECT activo FROM usuario WHERE id = ${a.id}`;
   expect(filaA.activo).toBe(true);
-  // Dejar dos admins activos otra vez para no afectar otras pruebas.
   await ctx.sql`UPDATE usuario SET activo = true WHERE id = ${b.id}`;
 });
 

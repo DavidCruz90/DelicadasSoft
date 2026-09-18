@@ -3,21 +3,52 @@ import { networkInterfaces } from 'node:os';
 import { test, expect, beforeAll, afterAll } from 'vitest';
 import type { FastifyRequest, InjectOptions } from 'fastify';
 import { crearAppDePrueba } from './ayuda/app';
-import { IP_REMOTA, autorizarDispositivoDePrueba } from './ayuda/acceso';
+import { IP_REMOTA, abrirSesionDePrueba, autorizarDispositivoDePrueba, crearUsuarioDePrueba } from './ayuda/acceso';
 import { crearApp } from '../src/servidor/app';
 import { accesoExigido } from '../src/servidor/seguridad/guardia';
 import { ADMIN, SOLO_DISPOSITIVO } from '../src/servidor/seguridad/acceso';
+import { ROLES, type Rol } from '../src/compartido/roles';
+
+// Ni el hash ni un campo "pin" en ninguna respuesta (regla 24). tiene_pin y
+// propina_sugerida_pct contienen "pin" y son legítimos: se mira la forma.
+function sinDatosDelPin(cuerpo: string, contexto = '') {
+  expect(cuerpo, contexto).not.toContain('pin_hash');
+  expect(cuerpo, contexto).not.toMatch(/"pin"\s*:/);
+}
 
 let ctx: Awaited<ReturnType<typeof crearAppDePrueba>>;
-beforeAll(async () => { ctx = await crearAppDePrueba(); });
+let aparato: Awaited<ReturnType<typeof autorizarDispositivoDePrueba>>;
+const usuarios = {} as Record<Rol, Awaited<ReturnType<typeof crearUsuarioDePrueba>>>;
+
+beforeAll(async () => {
+  ctx = await crearAppDePrueba();
+  aparato = await autorizarDispositivoDePrueba(ctx.db, 'Aparato del barrido');
+  for (const rol of ROLES) usuarios[rol] = await crearUsuarioDePrueba(ctx.db, `Barrido ${rol}`, rol);
+});
 afterAll(async () => { await ctx.app.close(); await ctx.sql.end(); });
 
-// Lista blanca de la spec, sección 3.1, escrita aquí a propósito: si alguien
-// exime una ruta nueva en el código, esta prueba lo detecta.
+// Lista blanca de la spec, sección 3.1, escrita aquí a propósito y no
+// importada del código: si alguien exime una ruta nueva en el código sin
+// añadirla aquí, esta prueba falla. Al añadir una ruta aquí hay que citar la
+// sección de la spec que la exime.
 const EXENTAS_DE_DISPOSITIVO = new Set([
   'GET /api/instalacion', 'POST /api/instalacion',
   'POST /api/dispositivos/solicitar', 'GET /api/dispositivos/estado',
 ]);
+const EXENTAS_DE_SESION = new Set([
+  ...EXENTAS_DE_DISPOSITIVO,
+  'GET /api/sesion/usuarios', 'POST /api/sesion',
+  'GET /api/estado', 'GET /api/catalogo',
+  'GET /api/eventos',
+  // Plan 3, cocina (spec 3.1): 'GET /api/cocina/rondas', 'POST /api/rondas/:id/lista'. Se añaden cuando existan.
+]);
+
+const UUID = '00000000-0000-0000-0000-000000000000';
+const conUuid = (url: string) => url.replace(/:[a-zA-Z_]+/g, UUID);
+// La misma dirección con la "a" de api codificada: el router la decodifica y
+// ejecuta el mismo manejador, así que el guardia tiene que tratarla igual.
+const disfrazada = (url: string) => url.replace(/^\/api\//, '/%61pi/');
+const rutasSinHead = () => ctx.app.rutasApi.filter((r) => r.metodo !== 'HEAD');
 
 test('toda ruta bajo /api queda registrada con su acceso y no hay HEAD sin declarar', () => {
   const rutas = ctx.app.rutasApi;
@@ -35,8 +66,8 @@ test('registrar una ruta bajo /api sin declarar acceso falla al arrancar', async
 });
 
 test('barrido capa 1: ninguna ruta bajo /api responde a un aparato sin autorizar, salvo la lista blanca de la spec 3.1', async () => {
-  const rutas = ctx.app.rutasApi.filter((r) => r.metodo !== 'HEAD');
-  expect(rutas.length).toBeGreaterThan(0);
+  const rutas = rutasSinHead();
+  expect(rutas.length).toBeGreaterThan(10);
   for (const r of rutas) {
     const clave = `${r.metodo} ${r.url}`;
     if (EXENTAS_DE_DISPOSITIVO.has(clave)) {
@@ -44,25 +75,100 @@ test('barrido capa 1: ninguna ruta bajo /api responde a un aparato sin autorizar
       continue;
     }
     expect(r.acceso.dispositivo, `${clave} debería exigir dispositivo`).toBe(true);
-    const url = r.url.replace(/:[a-zA-Z]+/g, '00000000-0000-0000-0000-000000000000');
-    const res = await ctx.app.inject({ method: r.metodo as 'GET', url, remoteAddress: IP_REMOTA });
-    expect(res.statusCode, clave).toBe(403);
-    expect(res.json().codigo, clave).toBe('dispositivo_no_autorizado');
+    for (const url of [conUuid(r.url), disfrazada(conUuid(r.url))]) {
+      const res = await ctx.app.inject({ method: r.metodo as 'GET', url, remoteAddress: IP_REMOTA, headers: { cookie: '' } });
+      expect(res.statusCode, `${r.metodo} ${url}`).toBe(403);
+      expect(res.json().codigo, `${r.metodo} ${url}`).toBe('dispositivo_no_autorizado');
+    }
   }
 });
 
-test('una ruta que no existe bajo /api también exige dispositivo (403 antes que 404)', async () => {
-  const r = await ctx.app.inject({ method: 'GET', url: '/api/no-existe', remoteAddress: IP_REMOTA });
+test('barrido capa 2: ninguna ruta bajo /api responde con aparato autorizado pero sin sesión, salvo la lista blanca 3.1; tampoco con la dirección disfrazada', async () => {
+  let comprobadas = 0;
+  for (const r of rutasSinHead()) {
+    const clave = `${r.metodo} ${r.url}`;
+    if (EXENTAS_DE_SESION.has(clave)) {
+      expect(r.acceso.sesion, clave).toBe(false);
+      continue;
+    }
+    expect(r.acceso.sesion, `${clave} debería exigir sesión`).toBe(true);
+    for (const url of [conUuid(r.url), disfrazada(conUuid(r.url))]) {
+      const res = await ctx.app.inject({ method: r.metodo as 'GET', url, remoteAddress: IP_REMOTA, headers: { cookie: aparato.cookie } });
+      expect(res.statusCode, `${r.metodo} ${url}`).toBe(401);
+      expect(res.json().codigo, `${r.metodo} ${url}`).toBe('sin_sesion');
+      comprobadas++;
+    }
+  }
+  expect(comprobadas).toBeGreaterThan(10);
+});
+
+test('barrido capa 3: cada rol contra cada ruta con roles; lo que no le toca responde 403 sin ejecutar nada (también disfrazada), lo que le toca no responde 401 ni 403; ninguna respuesta lleva pin', async () => {
+  const conRoles = rutasSinHead().filter((r) => r.acceso.sesion);
+  expect(conRoles.length).toBeGreaterThan(5);
+  let permitidas = 0;
+  let negadas = 0;
+  for (const r of conRoles) {
+    if (!r.acceso.sesion) continue;
+    const clave = `${r.metodo} ${r.url}`;
+    for (const rol of ROLES) {
+      const permitido = r.acceso.roles.includes(rol);
+      for (const url of permitido ? [conUuid(r.url)] : [conUuid(r.url), disfrazada(conUuid(r.url))]) {
+        // Sesión nueva por petición: DELETE /api/sesion cierra la que usa.
+        const cookieSesion = await abrirSesionDePrueba(ctx.db, usuarios[rol], aparato.dispositivo.id);
+        const res = await ctx.app.inject({ method: r.metodo as 'GET', url, remoteAddress: IP_REMOTA, headers: { cookie: `${aparato.cookie}; ${cookieSesion}` } });
+        sinDatosDelPin(res.body, `${r.metodo} ${url} como ${rol}`);
+        if (permitido) {
+          expect([401, 403], `${clave} como ${rol} debería pasar el guardia (respondió ${res.statusCode})`).not.toContain(res.statusCode);
+          expect(res.statusCode, `${clave} como ${rol} no debería ser un error del servidor`).toBeLessThan(500);
+          permitidas++;
+        } else {
+          expect(res.statusCode, `${r.metodo} ${url} como ${rol} debería ser 403`).toBe(403);
+          expect(res.json(), `${r.metodo} ${url} como ${rol}`).toEqual({ error: 'No tienes permiso para esta pantalla', codigo: 'sin_permiso' });
+          negadas++;
+        }
+      }
+    }
+  }
+  expect(permitidas).toBeGreaterThan(5);
+  expect(negadas).toBeGreaterThan(5);
+});
+
+test('un mesero contra una ruta de admin escrita como /%61pi/admin/usuarios recibe 403 sin_permiso y sin datos', async () => {
+  const cookieSesion = await abrirSesionDePrueba(ctx.db, usuarios.mesero, aparato.dispositivo.id);
+  const r = await ctx.app.inject({ method: 'GET', url: '/%61pi/admin/usuarios', remoteAddress: IP_REMOTA, headers: { cookie: `${aparato.cookie}; ${cookieSesion}` } });
   expect(r.statusCode).toBe(403);
-  expect(r.json().codigo).toBe('dispositivo_no_autorizado');
-  // Con un aparato autorizado, la ruta inexistente responde el 404 normal.
-  const { cookie } = await autorizarDispositivoDePrueba(ctx.db, 'Celular del barrido');
-  const con = await ctx.app.inject({ method: 'GET', url: '/api/no-existe', remoteAddress: IP_REMOTA, headers: { cookie } });
-  expect(con.statusCode).toBe(404);
+  expect(r.json()).toEqual({ error: 'No tienes permiso para esta pantalla', codigo: 'sin_permiso' });
+  expect(r.body).not.toContain('Barrido');
+});
+
+test('las rutas bajo /api/admin/ son solo de admin', () => {
+  const admin = rutasSinHead().filter((x) => x.url.startsWith('/api/admin/'));
+  expect(admin.length).toBeGreaterThan(5);
+  for (const r of admin) {
+    expect(r.acceso.sesion && r.acceso.roles, `${r.metodo} ${r.url}`).toEqual(['admin']);
+  }
+});
+
+test('una ruta que no existe bajo /api exige dispositivo y sesión (403, luego 401, y recién con sesión el 404)', async () => {
+  for (const url of ['/api/no-existe', '/%61pi/no-existe']) {
+    const sinAparato = await ctx.app.inject({ method: 'GET', url, remoteAddress: IP_REMOTA, headers: { cookie: '' } });
+    expect(sinAparato.statusCode, url).toBe(403);
+    expect(sinAparato.json().codigo, url).toBe('dispositivo_no_autorizado');
+    const sinSesion = await ctx.app.inject({ method: 'GET', url, remoteAddress: IP_REMOTA, headers: { cookie: aparato.cookie } });
+    expect(sinSesion.statusCode, url).toBe(401);
+    expect(sinSesion.json().codigo, url).toBe('sin_sesion');
+    // Un mesero no ve el 404: lo inexistente se trata como lo más restrictivo (admin).
+    const cookieMesero = await abrirSesionDePrueba(ctx.db, usuarios.mesero, aparato.dispositivo.id);
+    const mesero = await ctx.app.inject({ method: 'GET', url, remoteAddress: IP_REMOTA, headers: { cookie: `${aparato.cookie}; ${cookieMesero}` } });
+    expect(mesero.statusCode, url).toBe(403);
+    expect(mesero.json().codigo, url).toBe('sin_permiso');
+  }
+  // El admin de prueba desde la PC de caja sí recibe el 404 normal.
+  expect((await ctx.app.inject({ method: 'GET', url: '/api/no-existe' })).statusCode).toBe(404);
 });
 
 test('las páginas y los archivos fuera de /api no pasan por la capa 1', async () => {
-  const r = await ctx.app.inject({ method: 'GET', url: '/no-es-api', remoteAddress: IP_REMOTA });
+  const r = await ctx.app.inject({ method: 'GET', url: '/no-es-api', remoteAddress: IP_REMOTA, headers: { cookie: '' } });
   expect(r.statusCode).toBe(404);
   expect(r.json().codigo).toBeUndefined();
 });
@@ -71,8 +177,6 @@ test('las páginas y los archivos fuera de /api no pasan por la capa 1', async (
 // revisión). El router decodifica %61 → a y quita esquema y autoridad de
 // una petición en forma absoluta antes de elegir la ruta; el guardia tiene
 // que decidir por la ruta elegida, nunca por el texto crudo de req.url.
-
-const UUID = '00000000-0000-0000-0000-000000000000';
 
 test('un aparato sin autorizar no evade la capa 1 escribiendo /api con codificación por ciento', async () => {
   const casos: { method: 'GET' | 'HEAD' | 'POST'; url: string; payload?: unknown }[] = [
@@ -85,7 +189,7 @@ test('un aparato sin autorizar no evade la capa 1 escribiendo /api con codificac
     { method: 'POST', url: `/%61pi/admin/dispositivos/${UUID}/autorizar`, payload: { nombre: 'Atacante' } },
   ];
   for (const c of casos) {
-    const opciones: InjectOptions = { method: c.method, url: c.url, remoteAddress: IP_REMOTA };
+    const opciones: InjectOptions = { method: c.method, url: c.url, remoteAddress: IP_REMOTA, headers: { cookie: '' } };
     if (c.payload !== undefined) opciones.payload = c.payload as InjectOptions['payload'];
     const r = await ctx.app.inject(opciones);
     expect(r.statusCode, `${c.method} ${c.url}`).toBe(403);
@@ -94,7 +198,7 @@ test('un aparato sin autorizar no evade la capa 1 escribiendo /api con codificac
 });
 
 test('la cadena de autoautorización desde la red (solicitar y luego autorizar por /%61pi) queda cerrada', async () => {
-  const s = await ctx.app.inject({ method: 'POST', url: '/api/dispositivos/solicitar', remoteAddress: IP_REMOTA });
+  const s = await ctx.app.inject({ method: 'POST', url: '/api/dispositivos/solicitar', remoteAddress: IP_REMOTA, headers: { cookie: '' } });
   expect(s.statusCode).toBe(201);
   const id = s.json().espera_id;
   const cookie = (s.headers['set-cookie'] as string).split(';')[0];
@@ -108,7 +212,7 @@ test('la cadena de autoautorización desde la red (solicitar y luego autorizar p
 
 test('una URL bajo /api que no existe sigue en 403 aunque se escriba codificada o en forma absoluta', async () => {
   for (const url of ['/%61pi/no-existe', '/api/%6eo-existe']) {
-    const r = await ctx.app.inject({ method: 'GET', url, remoteAddress: IP_REMOTA });
+    const r = await ctx.app.inject({ method: 'GET', url, remoteAddress: IP_REMOTA, headers: { cookie: '' } });
     expect(r.statusCode, url).toBe(403);
     expect(r.json().codigo, url).toBe('dispositivo_no_autorizado');
   }
