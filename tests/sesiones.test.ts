@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { usuario } from '../src/servidor/db/schema';
 import { cerrarSesionesDeRol, reiniciarBloqueoLocal } from '../src/servidor/modulos/sesiones';
 import { huellaToken } from '../src/servidor/seguridad/tokens';
+import { cifrarPin } from '../src/servidor/seguridad/pin';
 
 // Ni el hash ni un campo "pin" en ninguna respuesta (regla 24). tiene_pin y
 // propina_sugerida_pct contienen "pin" y son legítimos: se mira la forma.
@@ -238,6 +239,78 @@ test('desactivar a un usuario cierra sus sesiones al instante y reactivarlo no l
   expect((await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...conSesion(cookieOtro) })).statusCode).toBe(200);
   const [filaOtro] = await ctx.sql`SELECT cerrada_en FROM sesion WHERE token_hash = ${huellaDe(cookieOtro)}`;
   expect(filaOtro.cerrada_en).toBeNull();
+});
+
+test('cambiar el rol de un usuario cierra sus sesiones (hay que volver a entrar con el plazo del rol nuevo); mandar el mismo rol no cierra nada', async () => {
+  const u = await crearUsuarioDePrueba(ctx.db, 'Ascendido', 'mesero', '5656');
+  const cookie = cookieSesionDe(await entrar(u.id, '5656'));
+  // El mismo rol que ya tenía no es un cambio: la sesión sigue.
+  expect((await ctx.app.inject({ method: 'PATCH', url: `/api/admin/usuarios/${u.id}`, payload: { rol: 'mesero' } })).statusCode).toBe(200);
+  expect((await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...conSesion(cookie) })).statusCode).toBe(200);
+  // De mesero a caja: la sesión de mesero no vencía nunca, y la capa 3 leería
+  // el rol nuevo pero expira_en seguiría con el plazo del rol viejo hasta la
+  // siguiente petición manual. Cambiar de rol = volver a entrar.
+  const ascenso = await ctx.app.inject({ method: 'PATCH', url: `/api/admin/usuarios/${u.id}`, payload: { rol: 'caja' } });
+  expect(ascenso.statusCode).toBe(200);
+  const negada = await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...conSesion(cookie) });
+  expect(negada.statusCode).toBe(401);
+  expect(negada.json().codigo).toBe('sin_sesion');
+  const [fila] = await ctx.sql`SELECT cerrada_en FROM sesion WHERE token_hash = ${huellaDe(cookie)}`;
+  expect(fila.cerrada_en).not.toBeNull();
+  // Al volver a entrar, la sesión nueva ya lleva el plazo de caja.
+  const otraVez = await entrar(u.id, '5656');
+  expect(otraVez.statusCode).toBe(201);
+  expect(otraVez.json().expira_en).not.toBeNull();
+});
+
+// Carreras deterministas entre entrar con PIN y una acción que quita el
+// acceso, con el mismo método que instalacion.test.ts: una transacción
+// externa deja la acción sin confirmar, se lanza el POST sin esperarlo, se
+// le da tiempo a llegar hasta la escritura de la sesión, y recién entonces
+// se confirma. Antes del arreglo, entrar leía al usuario sin bloqueo, hacía
+// scrypt y escribía la sesión fuera de toda transacción: la sesión quedaba
+// viva después de que desactivar o cambiar el PIN ya habían cerrado todas.
+test('carrera: desactivar mientras se verifica el PIN no deja sesión viva y no cuenta como intento', async () => {
+  const u = await crearUsuarioDePrueba(ctx.db, 'Carrera off', 'mesero', '8888');
+  let postPromise: Promise<{ statusCode: number; json: () => any }> | null = null;
+  await ctx.sql.begin(async (tx) => {
+    // Mismos bloqueos que editarUsuario: FOR UPDATE sobre la fila y luego el UPDATE.
+    await tx`SELECT id FROM usuario WHERE id = ${u.id} FOR UPDATE`;
+    await tx`UPDATE usuario SET activo = false WHERE id = ${u.id}`;
+    postPromise = Promise.resolve(entrar(u.id, '8888'));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await tx`UPDATE sesion SET cerrada_en = now() WHERE usuario_id = ${u.id} AND cerrada_en IS NULL`;
+  });
+  const r = await postPromise!;
+  expect(r.statusCode).toBe(401);
+  expect(r.json()).toEqual({ error: 'PIN incorrecto', codigo: 'pin_incorrecto' });
+  expect(await ctx.sql`SELECT id FROM sesion WHERE usuario_id = ${u.id} AND cerrada_en IS NULL`).toHaveLength(0);
+  // El PIN era correcto: no es un intento fallido del aparato.
+  expect(await ctx.sql`SELECT id FROM intento_fallido WHERE usuario_id = ${u.id}`).toHaveLength(0);
+  // Reactivarlo no revive nada: no hay sesión que revivir.
+  await ctx.sql`UPDATE usuario SET activo = true WHERE id = ${u.id}`;
+  expect(await ctx.sql`SELECT id FROM sesion WHERE usuario_id = ${u.id} AND cerrada_en IS NULL`).toHaveLength(0);
+});
+
+test('carrera: cambiar el PIN mientras se verifica el PIN viejo no deja sesión viva', async () => {
+  const u = await crearUsuarioDePrueba(ctx.db, 'Carrera pin', 'mesero', '8888');
+  const hashNuevo = await cifrarPin('9999');
+  let postPromise: Promise<{ statusCode: number; json: () => any }> | null = null;
+  await ctx.sql.begin(async (tx) => {
+    // Mismas escrituras que cambiarPin: UPDATE normal (toma FOR NO KEY UPDATE,
+    // que solo choca con FOR SHARE o más fuerte) y cierre de sesiones.
+    await tx`UPDATE usuario SET pin_hash = ${hashNuevo} WHERE id = ${u.id}`;
+    await tx`UPDATE sesion SET cerrada_en = now() WHERE usuario_id = ${u.id} AND cerrada_en IS NULL`;
+    postPromise = Promise.resolve(entrar(u.id, '8888'));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
+  const r = await postPromise!;
+  expect(r.statusCode).toBe(401);
+  expect(r.json()).toEqual({ error: 'PIN incorrecto', codigo: 'pin_incorrecto' });
+  expect(await ctx.sql`SELECT id FROM sesion WHERE usuario_id = ${u.id} AND cerrada_en IS NULL`).toHaveLength(0);
+  expect(await ctx.sql`SELECT id FROM intento_fallido WHERE usuario_id = ${u.id}`).toHaveLength(0);
+  // Con el PIN nuevo, ya confirmado, entra.
+  expect((await entrar(u.id, '9999')).statusCode).toBe(201);
 });
 
 test('una petición automática (X-Automatica: 1) se valida igual pero no renueva la sesión; cualquier otro valor o sin cabecera sí renueva; vencida recibe 401 igual', async () => {

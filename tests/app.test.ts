@@ -18,6 +18,21 @@ test('GET /api/estado devuelve configuracion y jornada nula, sin lista de usuari
   expect('meseros' in cuerpo).toBe(false);
 });
 
+test('GET /api/estado expone de la jornada abierta solo id y abierta_en: nada de dinero (regla 22, la ruta no exige sesión y la usa cocina)', async () => {
+  const [j] = await ctx.sql`INSERT INTO jornada (fondo_inicial) VALUES (50) RETURNING id`;
+  try {
+    const r = await ctx.app.inject({ method: 'GET', url: '/api/estado' });
+    expect(r.statusCode).toBe(200);
+    const cuerpo = r.json();
+    expect(Object.keys(cuerpo.jornada).sort()).toEqual(['abierta_en', 'id']);
+    expect(cuerpo.jornada.id).toBe(j.id);
+    expect(r.body).not.toContain('fondo_inicial');
+    expect(r.body).not.toContain('total_');
+  } finally {
+    await ctx.sql`DELETE FROM jornada WHERE id = ${j.id}`;
+  }
+});
+
 test('una ruta inexistente responde 404 con {error}', async () => {
   const r = await ctx.app.inject({ method: 'GET', url: '/api/no-existe' });
   expect(r.statusCode).toBe(404);

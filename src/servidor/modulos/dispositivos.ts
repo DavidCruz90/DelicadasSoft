@@ -192,7 +192,7 @@ export function rutasDispositivos(app: FastifyInstance) {
   app.get('/api/admin/dispositivos', { config: { acceso: ADMIN } }, async () => listarDispositivos(app.db));
   app.post<{ Params: { id: string } }>('/api/admin/dispositivos/:id/autorizar', { config: { acceso: ADMIN } }, async (req) => {
     const datos = exigirObjetoOpcional(req.body);
-    // usuarioActual lo llena la capa 2 (Task 4); hasta entonces queda nulo.
+    // usuarioActual lo llena la capa 2 del guardia (ADMIN exige sesión).
     const d = await autorizarDispositivo(app.db, req.params.id, datos, req.usuarioActual?.id ?? null);
     app.bus.emitir('dispositivos');
     return d;

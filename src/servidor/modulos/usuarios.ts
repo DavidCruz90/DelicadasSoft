@@ -115,8 +115,12 @@ export async function editarUsuario(db: Db, id: string, datos: { nombre?: unknow
       // (mismo criterio que cambiar el PIN). Sin esto la sesión solo quedaba
       // negada mientras el usuario estuviera inactivo: una sesión de mesero no
       // vence nunca, y al reactivarlo la cookie vieja volvía a entrar sin PIN.
-      // Renombrar o cambiar de rol no cierra nada: el rol se lee en cada petición.
-      if (existente.activo && !activoFinal) await cerrarSesionesDe(tx, id);
+      // Cambiar de rol también cierra: la capa 3 lee el rol fresco, pero
+      // expira_en conserva el plazo del rol viejo hasta la siguiente petición
+      // manual (un mesero ascendido a admin, con la pantalla recargando sola,
+      // quedaría con una sesión de admin sin vencimiento). Cambiar de rol es
+      // volver a entrar. Renombrar no cierra nada.
+      if ((existente.activo && !activoFinal) || rolFinal !== existente.rol) await cerrarSesionesDe(tx, id);
       return publico(u);
     } catch (err) {
       throw traducirConflictoNombre(err);

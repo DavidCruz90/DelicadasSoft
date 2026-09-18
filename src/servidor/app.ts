@@ -92,7 +92,11 @@ export async function crearApp({ db }: { db: Db }) {
   app.setNotFoundHandler((_req, reply) => reply.status(404).send({ error: 'No existe' }));
 
   app.get('/api/estado', { config: { acceso: SOLO_DISPOSITIVO } }, async () => {
-    const [abierta] = await db.select().from(jornada).where(isNull(jornada.cerrada_en)).limit(1);
+    // Regla 22: esta ruta no exige sesión (la usa cocina), así que de la
+    // jornada solo sale lo que hace falta para saber si está abierta; nada
+    // de dinero (fondo_inicial, totales). Las pantallas solo miran si es nula.
+    const [abierta] = await db.select({ id: jornada.id, abierta_en: jornada.abierta_en })
+      .from(jornada).where(isNull(jornada.cerrada_en)).limit(1);
     return {
       configuracion: await obtenerConfiguracion(db),
       jornada: abierta ?? null,

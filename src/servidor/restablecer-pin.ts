@@ -57,7 +57,11 @@ try {
   const u = await restablecerPinAdmin(db, nombre, pin);
   console.log(`PIN restablecido para ${u.nombre}. Sus sesiones abiertas quedaron cerradas.`);
 } catch (err) {
-  console.error((err as Error).message);
+  // Los errores propios (validación, "no hay un administrador...") traen
+  // estado y un mensaje pensado para el dueño. Cualquier otro es, en la
+  // práctica, que la base no responde: no se imprime el error crudo.
+  const e = err as { estado?: unknown; message?: string };
+  console.error(typeof e.estado === 'number' ? e.message : 'No se pudo conectar con la base de datos (¿está encendida?)');
   process.exitCode = 1;
 } finally {
   await sql.end();

@@ -16,8 +16,8 @@ afterAll(async () => { await ctx.app.close(); await ctx.sql.end(); });
 
 type Salida = { code?: number; stdout: string; stderr: string };
 // El comando lee DATABASE_URL; dotenv no pisa una variable que ya viene en el entorno.
-const correr = (args: string[]): Promise<Salida> =>
-  ejecutar(TSX, ['src/servidor/restablecer-pin.ts', ...args], { env: { ...process.env, DATABASE_URL: URL } })
+const correr = (args: string[], url = URL): Promise<Salida> =>
+  ejecutar(TSX, ['src/servidor/restablecer-pin.ts', ...args], { env: { ...process.env, DATABASE_URL: url } })
     .then((r) => ({ code: 0, ...r }), (e) => e as Salida);
 
 test('el comando escribe el PIN nuevo del administrador, avisa por consola y cierra sus sesiones abiertas', async () => {
@@ -101,6 +101,15 @@ test('si la confirmación del PIN no coincide, o la entrada se acaba antes de re
   expect(cortada.stderr).not.toContain('await');
   const [fila] = await ctx.sql`SELECT pin_hash FROM usuario WHERE id = ${ctx.admin.id}`;
   expect(await verificarPin('4321', fila.pin_hash)).toBe(true);
+});
+
+test('si la base de datos no responde, termina con código 1 y un mensaje en español, no con una traza', async () => {
+  // Puerto cerrado: la conexión se rechaza al instante.
+  const r = await correr(['--nombre', 'Admin de prueba', '--pin', '9876'], 'postgres://cafeteria:cafeteria@127.0.0.1:1/cafeteria_test');
+  expect(r.code).toBe(1);
+  expect(r.stderr).toContain('No se pudo conectar con la base de datos (¿está encendida?)');
+  expect(r.stderr).not.toContain('ECONNREFUSED');
+  expect(r.stderr).not.toMatch(/\n\s+at /);
 });
 
 test('con un argumento desconocido o sin nombre termina con código 1 y un mensaje claro, no con una traza', async () => {
