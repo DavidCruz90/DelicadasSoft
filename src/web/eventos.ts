@@ -60,15 +60,19 @@ export function useEstado() {
   const vivo = useRef(true);
   const reintento = useRef<any>(null);
 
-  const cargar = () => {
+  // automatica: la recarga la disparó un evento o la reconexión, no la
+  // persona; va marcada para que no cuente como uso de la sesión (spec 4.3).
+  // /api/estado no exige sesión, pero se marca igual: todo lo que no inicia
+  // la persona viaja marcado, sin excepciones que haya que recordar.
+  const cargar = (automatica = false) => {
     if (reintento.current) { clearTimeout(reintento.current); reintento.current = null; }
-    api.get('/api/estado').then((datos) => {
+    api.get('/api/estado', { automatica }).then((datos) => {
       if (vivo.current) setEstado(datos);
     }).catch(() => {
       // Sin conexion en la primera carga, o el servidor volvio a caerse
       // justo al reconectar: reintentar hasta que entre, no dejar la
       // pantalla colgada en "Cargando...".
-      if (vivo.current) reintento.current = setTimeout(cargar, REINTENTO_MS);
+      if (vivo.current) reintento.current = setTimeout(() => cargar(automatica), REINTENTO_MS);
     });
   };
 
@@ -78,11 +82,11 @@ export function useEstado() {
     return () => { vivo.current = false; if (reintento.current) clearTimeout(reintento.current); };
   }, []);
 
-  const conectado = useEventos(['jornada', 'config'], () => cargar());
+  const conectado = useEventos(['jornada', 'config'], () => cargar(true));
   // Al reconectar (o conectar por primera vez) puede haber pasado cualquier
   // cosa mientras no habia conexion: recargar siempre, no solo esperar a
   // que llegue un evento de jornada o config.
-  useEffect(() => { if (conectado) cargar(); }, [conectado]);
+  useEffect(() => { if (conectado) cargar(true); }, [conectado]);
 
-  return { estado, conectado, recargar: cargar };
+  return { estado, conectado, recargar: () => cargar() };
 }

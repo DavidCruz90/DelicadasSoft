@@ -12,12 +12,21 @@ export function Menu() {
   const [form, setForm] = useState<any>(VACIO);
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const cargar = async () => {
-    setCategorias(await api.get('/api/admin/categorias'));
-    setProductos(await api.get('/api/admin/productos'));
+  const [historialDe, setHistorialDe] = useState<any | null>(null);
+  const [historial, setHistorial] = useState<any[]>([]);
+  // automatica: la recarga la disparó un aviso en vivo, no la persona, y no
+  // renueva la sesión (spec 4.3). La carga inicial sí cuenta como uso.
+  const cargar = async (automatica = false) => {
+    setCategorias(await api.get('/api/admin/categorias', { automatica }));
+    setProductos(await api.get('/api/admin/productos', { automatica }));
   };
   useEffect(() => { cargar(); }, []);
-  useEventos(['catalogo', 'stock'], () => cargar());
+  useEventos(['catalogo', 'stock'], () => cargar(true));
+  const verHistorial = async (p: any) => {
+    setError(null);
+    try { setHistorial(await api.get(`/api/admin/productos/${p.id}/precios`)); setHistorialDe(p); }
+    catch (err: any) { setError(err.message); }
+  };
 
   const crearCategoria = async (e: Event) => {
     e.preventDefault(); setError(null);
@@ -107,10 +116,22 @@ export function Menu() {
               <td>{p.nombre}</td><td>{nombreCat(p.categoria_id)}</td><td>{p.precio}</td>
               <td>{p.controla_stock ? <span>{p.stock_actual} <button onClick={() => ajustarStock(p)}>Ajustar</button></span> : <span class="pill">Sin control</span>}</td>
               <td><span class={`pill ${p.activo ? 'ok' : ''}`}>{p.activo ? 'Activo' : 'Inactivo'}</span></td>
-              <td><button onClick={() => editar(p)}>Editar</button> <button onClick={() => alternarActivo(p)}>{p.activo ? 'Desactivar' : 'Activar'}</button></td>
+              <td><button onClick={() => editar(p)}>Editar</button> <button onClick={() => verHistorial(p)}>Precios</button> <button onClick={() => alternarActivo(p)}>{p.activo ? 'Desactivar' : 'Activar'}</button></td>
             </tr>
           ))}</tbody></table>
       </section>
+
+      {historialDe && (
+        <section class="tarjeta">
+          <h2>Historial de precios · {historialDe.nombre} <button type="button" onClick={() => setHistorialDe(null)}>Cerrar</button></h2>
+          {historial.length === 0 ? <p>Este producto nunca cambió de precio.</p> : (
+            <table><thead><tr><th>Cuándo</th><th>Antes</th><th>Después</th><th>Quién</th></tr></thead>
+              <tbody>{historial.map((h) => (
+                <tr key={h.id}><td>{new Date(h.creado_en).toLocaleString('es-EC')}</td><td>{h.precio_anterior}</td><td>{h.precio_nuevo}</td><td>{h.usuario_nombre}</td></tr>
+              ))}</tbody></table>
+          )}
+        </section>
+      )}
     </div>
   );
 }

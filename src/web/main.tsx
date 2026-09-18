@@ -1,4 +1,6 @@
 import { render } from 'preact';
+import { Acceso } from './acceso/Acceso';
+import { ROLES_POR_PANTALLA } from '../compartido/roles';
 import { AppAdmin } from './admin/AppAdmin';
 import { AppMesero } from './mesero/AppMesero';
 import { AppCaja } from './caja/AppCaja';
@@ -15,5 +17,15 @@ function Indice() {
 }
 
 const ruta = location.pathname.replace(/\/+$/, '') || '/';
-const App = ruta === '/admin' ? AppAdmin : ruta === '/mesero' ? AppMesero : ruta === '/caja' ? AppCaja : ruta === '/cocina' ? AppCocina : Indice;
-render(<App />, document.getElementById('app')!);
+
+// Cada pantalla va dentro de <Acceso>, que resuelve instalación, aparato,
+// PIN y rol antes de mostrarla. Cocina no lleva sesión (rolesPermitidos null).
+function Raiz() {
+  if (ruta === '/admin') return <Acceso rolesPermitidos={ROLES_POR_PANTALLA['/admin']}><AppAdmin /></Acceso>;
+  if (ruta === '/caja') return <Acceso rolesPermitidos={ROLES_POR_PANTALLA['/caja']}><AppCaja /></Acceso>;
+  if (ruta === '/mesero') return <Acceso rolesPermitidos={ROLES_POR_PANTALLA['/mesero']}><AppMesero /></Acceso>;
+  if (ruta === '/cocina') return <Acceso rolesPermitidos={null}><AppCocina /></Acceso>;
+  return <Indice />;
+}
+
+render(<Raiz />, document.getElementById('app')!);

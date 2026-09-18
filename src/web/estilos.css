@@ -26,3 +26,17 @@ th, td { text-align:left; padding:8px; border-bottom:1px solid var(--linea); ver
 .pill.ok { background:var(--acento-suave); color:var(--acento); }
 .pill.alerta { background:var(--alerta-suave); color:var(--alerta); }
 .pill.error { background:var(--error-suave); color:var(--error); }
+.sesion { margin-left:auto; display:flex; gap:8px; align-items:center; }
+.capa-bloqueo { position:fixed; inset:0; background:rgba(27,31,28,.85); display:flex; align-items:center; justify-content:center; z-index:100; padding:16px; }
+.pantalla-pin { display:flex; justify-content:center; }
+.teclado-pin { background:#fff; border-radius:12px; padding:20px; width:100%; max-width:360px; display:grid; gap:14px; outline:none; }
+.teclado-pin h1 { font-size:20px; margin:0; text-align:center; }
+.puntos { display:flex; gap:14px; justify-content:center; }
+.punto { width:16px; height:16px; border-radius:50%; border:2px solid var(--acento); }
+.punto.lleno { background:var(--acento); }
+.teclas { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.teclas button { min-height:64px; font-size:24px; }
+.pantalla-codigo { text-align:center; }
+.codigo-grande { font-size:96px; font-weight:700; letter-spacing:.2em; color:var(--acento); margin:24px 0; }
+.codigo-celda { font-size:24px; font-weight:700; letter-spacing:.1em; }
+.sin-permiso { text-align:center; }

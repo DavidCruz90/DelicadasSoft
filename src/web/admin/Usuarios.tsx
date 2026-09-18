@@ -11,9 +11,12 @@ export function Usuarios() {
   const [lista, setLista] = useState<any[]>([]);
   const [form, setForm] = useState(VACIO);
   const [error, setError] = useState<string | null>(null);
-  const cargar = () => api.get('/api/admin/usuarios').then(setLista).catch((e: any) => setError(e.message));
+  // automatica: la recarga la disparó un aviso en vivo, no la persona, y no
+  // renueva la sesión (spec 4.3). La carga inicial y las que siguen a un
+  // clic sí cuentan como uso.
+  const cargar = (automatica = false) => api.get('/api/admin/usuarios', { automatica }).then(setLista).catch((e: any) => setError(e.message));
   useEffect(() => { cargar(); }, []);
-  useEventos(['config'], () => cargar());
+  useEventos(['config'], () => cargar(true));
 
   const crear = async (e: Event) => {
     e.preventDefault(); setError(null);
