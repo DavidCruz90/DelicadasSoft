@@ -13,6 +13,7 @@ import { rutasUsuarios } from './modulos/usuarios';
 import { rutasCatalogo } from './modulos/catalogo';
 import { rutasDispositivos } from './modulos/dispositivos';
 import { rutasSesion } from './modulos/sesiones';
+import { rutasInstalacion } from './modulos/instalacion';
 import { registrarGuardia } from './seguridad/guardia';
 import { SOLO_DISPOSITIVO } from './seguridad/acceso';
 import { jornada } from './db/schema';
@@ -102,6 +103,7 @@ export async function crearApp({ db }: { db: Db }) {
   rutasCatalogo(app);
   rutasDispositivos(app);
   rutasSesion(app);
+  rutasInstalacion(app);
 
   return app;
 }
