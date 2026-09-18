@@ -1847,6 +1847,9 @@ export function registrarGuardia(app: FastifyInstance) {
   });
 
   app.addHook('onRequest', async (req) => {
+    // ⚠ NO COPIAR: decidir sobre req.url crudo es el defecto C1 (evasión con
+    // /%61pi/... y URL absolutas). Lo que vale está en guardia.ts
+    // (accesoExigido). Ver la sección final de este plan.
     const ruta = req.url.split('?')[0];
     if (!ruta.startsWith('/api/')) return;
     // Una URL que no corresponde a ninguna ruta (404) no tiene declaración:
