@@ -2641,6 +2641,12 @@ export function registrarGuardia(app: FastifyInstance) {
   });
 
   app.addHook('onRequest', async (req) => {
+    // ⚠ NO COPIAR ESTAS DOS LÍNEAS. Decidir sobre req.url crudo es el defecto
+    // C1 que encontró la revisión de la Task 3 (2026-09-18): el enrutador
+    // decodifica %61 → a y quita el esquema de las URL absolutas antes de
+    // elegir la ruta, así que /%61pi/... evadía el guardia. Lo correcto, ya en
+    // src/servidor/seguridad/guardia.ts: const acceso = accesoExigido(req);
+    // if (!acceso) return;  — ver la sección final de este plan.
     const ruta = req.url.split('?')[0];
     if (!ruta.startsWith('/api/')) return;
     // Una URL sin ruta (404) no tiene declaración: se trata como la más
@@ -4026,3 +4032,8 @@ Los planes `2026-09-15-plan-2-operacion.md` y `2026-09-15-plan-3-complementos.md
 6. ~~**Cambiar el PIN de un usuario (o desactivarlo) no dice qué pasa con sus sesiones abiertas.**~~ **Resuelto por Dave el 2026-09-17: al instante.** Cambiar el PIN cierra las sesiones abiertas de ese usuario, en la misma transacción que escribe el PIN nuevo (`cambiarPin`, Task 2, con su prueba). Desactivar ya cortaba el acceso en la petición siguiente. Anotado en la spec 4.1.
 7. **Revocar un aparato pendiente** (no autorizado todavía) no está descrito; el plan lo marca `revocado` (desaparece de la lista) y su cookie nunca sirve. Recomendación: una línea en 4.2.
 8. **`autorizado_por`** exige un usuario, pero hasta la Task 4 de este plan no hay sesión; el plan lo deja nulo en ese tramo y siempre lleno después. No es hueco de la spec, solo orden de construcción; se anota para el revisor de Task 3.
+
+## Correcciones hechas durante la ejecución
+
+**C1, Task 3 (2026-09-18): el guardia de este plan podía evadirse desde la WiFi.** El `onRequest` que este plan trae en las Tasks 3 y 4 decide si una petición es de la API mirando si `req.url` empieza por `/api/`. El enrutador de Fastify (`find-my-way`) decodifica la dirección antes de elegir la ruta (`%61` pasa a `a`) y quita esquema y servidor de las peticiones en forma absoluta, así que `GET /%61pi/admin/configuracion` o `GET http://x/api/estado` llegaban al manejador sin pasar por ninguna capa. La revisión lo reprodujo en vivo: un aparato sin autorizar se autorizó a sí mismo en dos peticiones. Corregido en el commit `19cc528`: la decisión la toma `accesoExigido(req)`, que usa la declaración de la ruta elegida por el enrutador y solo recurre al texto (normalizado de forma igual o más restrictiva que el enrutador) cuando no hay ruta. La Task 4 construye las capas 2 y 3 sobre esa función, y su barrido de rutas ataca también con direcciones codificadas. **Quien relea este plan: el código del `onRequest` de las Tasks 3 y 4 no es el que quedó; el que vale es el del repositorio.**
+
