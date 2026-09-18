@@ -6,6 +6,7 @@ import type { Db, Tx } from '../db/conexion';
 import { categoria, producto, movimientoStock, jornada } from '../db/schema';
 import { ENTERO_MAXIMO, ErrorNegocio, ErrorTamano, ErrorValidacion, NoEncontrado, exigirBooleano, exigirEntero, exigirMonto, exigirObjeto, exigirObjetoOpcional, exigirTexto, exigirUuid } from '../errores';
 import { config } from '../config';
+import { ADMIN, SOLO_DISPOSITIVO } from '../seguridad/acceso';
 
 export type Categoria = typeof categoria.$inferSelect;
 export type Producto = typeof producto.$inferSelect;
@@ -289,43 +290,43 @@ async function borrarFotoAnterior(rutaAnterior: string | null) {
 }
 
 export function rutasCatalogo(app: FastifyInstance) {
-  app.get('/api/catalogo', async () => obtenerCatalogo(app.db));
+  app.get('/api/catalogo', { config: { acceso: SOLO_DISPOSITIVO } }, async () => obtenerCatalogo(app.db));
 
-  app.get('/api/admin/categorias', async () => listarCategorias(app.db));
-  app.post('/api/admin/categorias', async (req, reply) => {
+  app.get('/api/admin/categorias', { config: { acceso: ADMIN } }, async () => listarCategorias(app.db));
+  app.post('/api/admin/categorias', { config: { acceso: ADMIN } }, async (req, reply) => {
     const datos = exigirObjeto(req.body);
     const c = await crearCategoria(app.db, datos);
     app.bus.emitir('catalogo');
     return reply.status(201).send(c);
   });
-  app.patch<{ Params: { id: string } }>('/api/admin/categorias/:id', async (req) => {
+  app.patch<{ Params: { id: string } }>('/api/admin/categorias/:id', { config: { acceso: ADMIN } }, async (req) => {
     const datos = exigirObjetoOpcional(req.body);
     const c = await editarCategoria(app.db, req.params.id, datos);
     app.bus.emitir('catalogo');
     return c;
   });
 
-  app.get('/api/admin/productos', async () => listarProductos(app.db));
-  app.post('/api/admin/productos', async (req, reply) => {
+  app.get('/api/admin/productos', { config: { acceso: ADMIN } }, async () => listarProductos(app.db));
+  app.post('/api/admin/productos', { config: { acceso: ADMIN } }, async (req, reply) => {
     const datos = exigirObjeto(req.body);
     const p = await crearProducto(app.db, datos);
     app.bus.emitir('catalogo');
     return reply.status(201).send(p);
   });
-  app.patch<{ Params: { id: string } }>('/api/admin/productos/:id', async (req) => {
+  app.patch<{ Params: { id: string } }>('/api/admin/productos/:id', { config: { acceso: ADMIN } }, async (req) => {
     const datos = exigirObjetoOpcional(req.body);
     const p = await editarProducto(app.db, req.params.id, datos);
     app.bus.emitir('catalogo');
     return p;
   });
-  app.post<{ Params: { id: string } }>('/api/admin/productos/:id/stock', async (req) => {
+  app.post<{ Params: { id: string } }>('/api/admin/productos/:id/stock', { config: { acceso: ADMIN } }, async (req) => {
     const { stock, motivo } = exigirObjeto(req.body);
     // Solo stock y motivo: un "origen" en el cuerpo se ignora a propósito.
     const p = await ajustarStock(app.db, req.params.id, { stock, motivo });
     app.bus.emitir('stock', { producto_id: p.id, stock_actual: p.stock_actual });
     return p;
   });
-  app.post<{ Params: { id: string } }>('/api/admin/productos/:id/foto', async (req) => {
+  app.post<{ Params: { id: string } }>('/api/admin/productos/:id/foto', { config: { acceso: ADMIN } }, async (req) => {
     const id = exigirUuid(req.params.id, 'El identificador del producto no es válido');
     const [existe] = await app.db.select().from(producto).where(eq(producto.id, id));
     if (!existe) throw new NoEncontrado('El producto no existe');

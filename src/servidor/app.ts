@@ -11,13 +11,16 @@ import { crearBusEventos, rutaEventos, type BusEventos } from './eventos';
 import { obtenerConfiguracion, rutasConfiguracion } from './modulos/configuracion';
 import { rutasUsuarios } from './modulos/usuarios';
 import { rutasCatalogo } from './modulos/catalogo';
+import { rutasDispositivos } from './modulos/dispositivos';
+import { registrarGuardia } from './seguridad/guardia';
+import { SOLO_DISPOSITIVO } from './seguridad/acceso';
 import { jornada } from './db/schema';
 
 declare module 'fastify' {
   interface FastifyInstance { db: Db; bus: BusEventos; }
 }
 
-type ErrorConEstado = FastifyError & { estado?: number };
+type ErrorConEstado = FastifyError & { estado?: number; codigo?: string };
 
 // Mensajes en espanol para errores que genera el propio Fastify (statusCode
 // 4xx) antes de que nuestro codigo intervenga: cuerpo malformado, tipo de
@@ -44,6 +47,9 @@ export async function crearApp({ db }: { db: Db }) {
   const app = Fastify({ logger: false, forceCloseConnections: true, routerOptions: { ignoreTrailingSlash: true } });
   app.decorate('db', db);
   app.decorate('bus', crearBusEventos((err) => app.log.error(err)));
+  // El guardia va antes que cualquier ruta: su onRoute exige config.acceso
+  // a toda ruta bajo /api/ y su onRequest aplica la capa 1 (dispositivo).
+  registrarGuardia(app);
 
   await app.register(multipart);
   mkdirSync(config.carpetaFotos, { recursive: true });
@@ -58,9 +64,10 @@ export async function crearApp({ db }: { db: Db }) {
   }
 
   app.setErrorHandler((err: ErrorConEstado, _req, reply) => {
-    // 1. Nuestros propios errores (ErrorNegocio, ErrorValidacion, NoEncontrado).
+    // 1. Nuestros propios errores (ErrorNegocio, ErrorValidacion, NoEncontrado,
+    // ErrorAcceso). Los de acceso llevan ademas un codigo de lista cerrada.
     if (typeof err.estado === 'number') {
-      reply.status(err.estado).send({ error: err.message });
+      reply.status(err.estado).send(err.codigo ? { error: err.message, codigo: err.codigo } : { error: err.message });
       return;
     }
     // 2. Errores de validacion de esquema (ajv). No se traduce el mensaje.
@@ -80,7 +87,7 @@ export async function crearApp({ db }: { db: Db }) {
   });
   app.setNotFoundHandler((_req, reply) => reply.status(404).send({ error: 'No existe' }));
 
-  app.get('/api/estado', async () => {
+  app.get('/api/estado', { config: { acceso: SOLO_DISPOSITIVO } }, async () => {
     const [abierta] = await db.select().from(jornada).where(isNull(jornada.cerrada_en)).limit(1);
     return {
       configuracion: await obtenerConfiguracion(db),
@@ -91,6 +98,7 @@ export async function crearApp({ db }: { db: Db }) {
   rutasConfiguracion(app);
   rutasUsuarios(app);
   rutasCatalogo(app);
+  rutasDispositivos(app);
 
   return app;
 }

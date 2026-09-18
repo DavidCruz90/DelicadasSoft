@@ -2,7 +2,7 @@ import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Db, Tx } from '../db/conexion';
 import { sesion, usuario } from '../db/schema';
-import { ErrorNegocio, ErrorValidacion, NoEncontrado, exigirBooleano, exigirObjeto, exigirObjetoOpcional, exigirTexto, exigirUuid } from '../errores';
+import { ErrorNegocio, ErrorValidacion, NoEncontrado, esViolacionUnica, exigirBooleano, exigirObjeto, exigirObjetoOpcional, exigirTexto, exigirUuid } from '../errores';
 import { ROLES, type Rol } from '../../compartido/roles';
 import { cifrarPin, exigirPin } from '../seguridad/pin';
 import { ADMIN } from '../seguridad/acceso';
@@ -41,20 +41,11 @@ export function exigirRol(valor: unknown, mensaje = 'El rol debe ser mesero, caj
   return valor as Rol;
 }
 
-// drizzle-orm >= 0.44 envuelve el error del driver en DrizzleQueryError y deja
-// el original (con code y constraint_name de postgres.js) en `cause`; por eso
-// se mira en los dos sitios. Sin esto, la violación del índice único salía
-// como 500 en vez de 409 (la prueba de carrera de nombres lo detecta).
-type ErrorPostgres = { code?: string; constraint_name?: string; cause?: unknown };
-
+// La violación del índice único parcial sale como 409 (sin esto salía como
+// 500; la prueba de carrera de nombres lo detecta). esViolacionUnica mira en
+// err y en err.cause porque Drizzle envuelve el error de Postgres.
 function traducirConflictoNombre(err: unknown): unknown {
-  const e = err as ErrorPostgres | null;
-  const causa = (e?.cause ?? e) as ErrorPostgres | null;
-  for (const candidato of [e, causa]) {
-    if (candidato && candidato.code === '23505' && candidato.constraint_name === 'usuario_nombre_activo_unico') {
-      return new ErrorNegocio('Ya existe un usuario con ese nombre');
-    }
-  }
+  if (esViolacionUnica(err, 'usuario_nombre_activo_unico')) return new ErrorNegocio('Ya existe un usuario con ese nombre');
   return err;
 }
 

@@ -103,3 +103,41 @@ export function exigirMonto(
   if (n < minimo || n > maximo) throw new ErrorValidacion(mensaje);
   return n.toFixed(2);
 }
+
+// drizzle-orm >= 0.44 envuelve el error del driver en DrizzleQueryError y deja
+// el original (con code y constraint_name de postgres.js) en `cause`. Por eso
+// se mira tanto en err como en err.cause: comprobar solo err es código muerto
+// (la Task 2 de la fase 2 lo descubrió con la carrera de nombres). Todo módulo
+// que traduzca una violación de índice único usa este ayudante, nunca repite
+// la comprobación a mano.
+type ErrorPostgres = { code?: unknown; constraint_name?: unknown; cause?: unknown };
+
+export function esViolacionUnica(err: unknown, restriccion: string): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as ErrorPostgres;
+  const candidatos: unknown[] = [e, e.cause];
+  return candidatos.some((c) => {
+    if (typeof c !== 'object' || c === null) return false;
+    const p = c as ErrorPostgres;
+    return p.code === '23505' && p.constraint_name === restriccion;
+  });
+}
+
+// Errores del guardia de acceso (401, 403, 429) y de la solicitud de un
+// aparato (404). Llevan un codigo de lista cerrada para que la pantalla sepa
+// qué hacer sin leer el mensaje: mostrar el código de autorización, poner el
+// teclado de PIN encima, o avisar que no tiene permiso.
+export type CodigoAcceso =
+  | 'dispositivo_no_autorizado'
+  | 'dispositivo_bloqueado'
+  | 'sin_sesion'
+  | 'pin_incorrecto'
+  | 'sin_permiso'
+  | 'solo_local'
+  | 'solicitud_caducada';
+
+export class ErrorAcceso extends Error {
+  constructor(public estado: number, mensaje: string, public codigo: CodigoAcceso) {
+    super(mensaje);
+  }
+}

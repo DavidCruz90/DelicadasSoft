@@ -3,6 +3,7 @@ import { test, expect, beforeAll, afterAll } from 'vitest';
 import { crearAppDePrueba } from './ayuda/app';
 import { crearApp } from '../src/servidor/app';
 import { ErrorNegocio, ErrorValidacion, NoEncontrado } from '../src/servidor/errores';
+import { PUBLICO } from '../src/servidor/seguridad/acceso';
 
 let ctx: Awaited<ReturnType<typeof crearAppDePrueba>>;
 beforeAll(async () => { ctx = await crearAppDePrueba(); });
@@ -51,11 +52,12 @@ test('un suscriptor que lanza no rompe emitir ni impide avisar al resto', () => 
 
 test('el manejador de errores traduce cada tipo a su codigo HTTP y cuerpo {error}', async () => {
   const appPrueba = await crearApp({ db: ctx.db });
-  appPrueba.get('/api/prueba/negocio', async () => { throw new ErrorNegocio('conflicto de negocio'); });
-  appPrueba.get('/api/prueba/validacion', async () => { throw new ErrorValidacion('dato invalido'); });
-  appPrueba.get('/api/prueba/no-encontrado', async () => { throw new NoEncontrado('recurso no existe'); });
-  appPrueba.get('/api/prueba/generico', async () => { throw new Error('detalle interno secreto'); });
-  appPrueba.post('/api/prueba/cuerpo', async (req) => ({ recibido: req.body }));
+  // El onRoute del guardia exige config.acceso a toda ruta bajo /api/.
+  appPrueba.get('/api/prueba/negocio', { config: { acceso: PUBLICO } }, async () => { throw new ErrorNegocio('conflicto de negocio'); });
+  appPrueba.get('/api/prueba/validacion', { config: { acceso: PUBLICO } }, async () => { throw new ErrorValidacion('dato invalido'); });
+  appPrueba.get('/api/prueba/no-encontrado', { config: { acceso: PUBLICO } }, async () => { throw new NoEncontrado('recurso no existe'); });
+  appPrueba.get('/api/prueba/generico', { config: { acceso: PUBLICO } }, async () => { throw new Error('detalle interno secreto'); });
+  appPrueba.post('/api/prueba/cuerpo', { config: { acceso: PUBLICO } }, async (req) => ({ recibido: req.body }));
   await appPrueba.ready();
 
   const rNegocio = await appPrueba.inject({ method: 'GET', url: '/api/prueba/negocio' });

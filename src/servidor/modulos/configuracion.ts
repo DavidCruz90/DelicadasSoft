@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db/conexion';
 import { configuracion } from '../db/schema';
 import { ErrorValidacion, exigirBooleano, exigirEntero, exigirMonto, exigirObjetoOpcional, exigirTexto } from '../errores';
+import { ADMIN } from '../seguridad/acceso';
 
 export type Configuracion = typeof configuracion.$inferSelect;
 
@@ -77,8 +78,8 @@ export async function actualizarConfiguracion(db: Db, cambios: Partial<Record<ke
 }
 
 export function rutasConfiguracion(app: FastifyInstance) {
-  app.get('/api/admin/configuracion', async () => obtenerConfiguracion(app.db));
-  app.patch('/api/admin/configuracion', async (req) => {
+  app.get('/api/admin/configuracion', { config: { acceso: ADMIN } }, async () => obtenerConfiguracion(app.db));
+  app.patch('/api/admin/configuracion', { config: { acceso: ADMIN } }, async (req) => {
     // Sin cuerpo: responde 200 sin modificar nada.
     const cambios = exigirObjetoOpcional(req.body);
     const r = await actualizarConfiguracion(app.db, cambios);

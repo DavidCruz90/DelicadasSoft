@@ -1,5 +1,6 @@
 import { test, expect } from 'vitest';
-import { ErrorValidacion, exigirMonto, exigirUuid } from '../src/servidor/errores';
+import { DrizzleQueryError } from 'drizzle-orm';
+import { ErrorValidacion, esViolacionUnica, exigirMonto, exigirUuid } from '../src/servidor/errores';
 
 const MSG = 'monto inválido';
 
@@ -42,4 +43,19 @@ test('exigirUuid rechaza lo que no tiene forma de uuid, con el mensaje dado', ()
     expect(() => exigirUuid(malo, 'id malo'), `valor ${String(malo)}`).toThrow('id malo');
   }
   expect(() => exigirUuid('x')).toThrow('El identificador no es válido');
+});
+
+test('esViolacionUnica reconoce el 23505 de PostgreSQL envuelto por Drizzle (en cause) y sin envolver, solo para la restricción pedida', () => {
+  const pg = Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505', constraint_name: 'x_unico' });
+  const envuelto = new DrizzleQueryError('insert into x', [], pg);
+  expect(esViolacionUnica(envuelto, 'x_unico')).toBe(true);
+  expect(esViolacionUnica(pg, 'x_unico')).toBe(true);
+  expect(esViolacionUnica(envuelto, 'otra_restriccion')).toBe(false);
+  expect(esViolacionUnica(pg, 'otra_restriccion')).toBe(false);
+  const otroCodigo = Object.assign(new Error('fk'), { code: '23503', constraint_name: 'x_unico' });
+  expect(esViolacionUnica(otroCodigo, 'x_unico')).toBe(false);
+  expect(esViolacionUnica(new DrizzleQueryError('q', [], otroCodigo), 'x_unico')).toBe(false);
+  for (const raro of [null, undefined, 'texto', 42, new Error('sin código'), new DrizzleQueryError('q', [], undefined)]) {
+    expect(esViolacionUnica(raro, 'x_unico'), String(raro)).toBe(false);
+  }
 });

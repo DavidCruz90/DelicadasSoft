@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { NombreEvento } from '../compartido/eventos';
+import { SOLO_DISPOSITIVO } from './seguridad/acceso';
 
 export type { NombreEvento };
 export type Evento = { nombre: NombreEvento; datos?: unknown };
@@ -33,7 +34,7 @@ export function rutaEventos(app: FastifyInstance) {
   // El cierre de las conexiones abiertas a /api/eventos cuando el servidor
   // se apaga se resuelve con forceCloseConnections: true en Fastify({...}),
   // no aqui (ver app.ts para el motivo).
-  app.get('/api/eventos', (req: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/eventos', { config: { acceso: SOLO_DISPOSITIVO } }, (req: FastifyRequest, reply: FastifyReply) => {
     // Tomamos el control manual de la respuesta: a partir de aqui Fastify
     // no debe tocar reply.raw por su cuenta.
     reply.hijack();
