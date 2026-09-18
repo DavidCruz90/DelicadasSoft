@@ -122,7 +122,7 @@ Cada ruta de la API declara los roles que la admiten. Regla general: rutas bajo 
 3. El navegador consulta `GET /api/dispositivos/estado` cada pocos segundos.
 4. El administrador, en `/admin` → Dispositivos, ve el código esperando, le pone nombre ("Celular de Ana") y autoriza.
 5. La siguiente consulta del navegador responde que ya está autorizado, y la cookie que recibió al solicitar empieza a servir. La pantalla continúa sola, sin recargar.
-6. La PC de caja no pasa por esto: las peticiones desde `127.0.0.1`/`::1` se consideran siempre de un dispositivo autorizado. Es lo que evita quedar encerrado sin ningún aparato desde el cual autorizar al primero. **Solo se salta la capa 1: el PIN se exige igual**, y quien tiene acceso físico a esa máquina ya puede apagarla o llevársela, así que no se pierde ninguna protección real.
+6. La PC de caja no pasa por esto: las peticiones desde `127.0.0.1`/`::1` **cuya cabecera `Host` es también un nombre local** (`localhost`, `127.0.0.1` o `[::1]`, con o sin puerto) se consideran siempre de un dispositivo autorizado. La condición del `Host` cierra el *rebinding* de DNS: una página maliciosa abierta en el navegador de la PC de caja, con un dominio propio que apunta a `127.0.0.1`, llega con IP local pero con su propio nombre en `Host`, y así no se hace pasar por la PC de caja. Es lo que evita quedar encerrado sin ningún aparato desde el cual autorizar al primero. **Solo se salta la capa 1: el PIN se exige igual**, y quien tiene acceso físico a esa máquina ya puede apagarla o llevársela, así que no se pierde ninguna protección real.
 
 ### 5.3 Entrar con PIN
 
@@ -158,7 +158,7 @@ Continúan la numeración de la spec principal, que llega a la regla 20.
 28. Revocar un dispositivo invalida su token y cierra sus sesiones de inmediato.
 29. Cerrar la jornada cierra todas las sesiones de rol mesero.
 30. Todo cambio de precio de un producto queda registrado con precio anterior, precio nuevo, usuario y fecha, por cualquier camino que lo cambie.
-31. La instalación inicial solo se acepta desde la propia PC de caja y solo mientras no exista ningún admin activo.
+31. La instalación inicial solo se acepta desde la propia PC de caja (IP de bucle local **y** cabecera `Host` local, ver 5.2.6) y solo mientras no exista ningún admin activo.
 
 ## 7. API
 
@@ -253,3 +253,5 @@ Contraseñas largas o usuarios con correo, permisos a medida por pantalla, que c
 ## 14. Correcciones posteriores
 
 **2026-09-17, al escribir el plan.** Escribir el plan con código real destapó siete contradicciones de este documento, todas ya corregidas arriba: el token no podía entregarse al consultar el estado si en el servidor solo queda su huella (ahora se entrega al solicitar, en cookie `HttpOnly`, y no sirve hasta que se autoriza); faltaba decir qué pasa con 5 intentos fallidos desde la PC de caja, que no tiene fila de dispositivo; `creada_en` y `ocurrido_en` chocaban con la regla del proyecto de que toda tabla lleva `creado_en`; la instalación no podía verse desde un celular porque su ruta es solo local; faltaba `expira_en` en la respuesta de entrar; y revocar un aparato todavía pendiente no estaba descrito. La única decisión que quedaba, si cambiarle el PIN a alguien debe cerrar sus sesiones abiertas, la resolvió Dave el mismo día: sí, al instante. Está en 4.1 y en la Task 2 del plan.
+
+**2026-09-18, revisión de la Task 5.** La PC de caja se reconocía solo por su IP de bucle local. La revisión demostró en vivo que una petición desde `127.0.0.1` con `Host: evil.com` instalaba un administrador: una página maliciosa abierta en el navegador de la PC de caja, con un dominio que apunte a `127.0.0.1` (*rebinding* de DNS), podía crear su propio admin mientras el sistema estaba sin instalar y, ya instalado, saltarse la capa 1. Desde entonces "la PC de caja" exige además que la cabecera `Host` sea un nombre local (5.2.6, regla 31).
