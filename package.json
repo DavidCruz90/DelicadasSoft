@@ -15,7 +15,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:generar": "drizzle-kit generate",
-    "db:migrar": "tsx src/servidor/db/migrar-cli.ts"
+    "db:migrar": "tsx src/servidor/db/migrar-cli.ts",
+    "restablecer-pin": "tsx src/servidor/restablecer-pin.ts"
   },
   "dependencies": {
     "@fastify/multipart": "^9.4.0",
