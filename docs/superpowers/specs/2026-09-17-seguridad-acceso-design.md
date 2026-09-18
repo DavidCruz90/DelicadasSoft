@@ -45,14 +45,14 @@ Las tres viven en **un único guardia** (hook `onRequest` de Fastify) que se apl
 
 | Ruta | Capa 1 | Capa 2 | Motivo |
 |---|---|---|---|
-| `GET/POST /api/instalacion` | exenta | exenta | No hay usuarios todavía. Solo responde desde 127.0.0.1 y solo mientras no exista ningún admin activo. |
+| `GET/POST /api/instalacion` | exenta | exenta | No hay usuarios todavía. Solo responde desde la PC de caja (IP de bucle local **y** cabecera `Host` local, ver 5.2.6) y solo mientras no exista ningún admin activo. |
 | `POST /api/dispositivos/solicitar` | exenta | exenta | Es cómo un aparato pide entrar. |
 | `GET /api/dispositivos/estado` | exenta | exenta | El aparato pendiente consulta si ya lo autorizaron. |
 | `GET /api/sesion/usuarios` | exige | exenta | Lista de nombres para el teclado de PIN. |
 | `POST /api/sesion` | exige | exenta | Entrar con PIN. |
 | `GET /api/estado`, `GET /api/catalogo` | exige | exenta | Los necesita `/cocina`, que no tiene sesión. |
 | `GET /api/cocina/*`, `POST /api/rondas/:id/lista` | exige | exenta | Pantalla de cocina, sin PIN por decisión de diseño. |
-| `GET /api/eventos` | exige | exenta | Canal de avisos en vivo. La pantalla de cocina no tiene sesión y lo necesita para enterarse de una ronda nueva. Solo emite avisos de que algo cambió, nunca datos. |
+| `GET /api/eventos` | exige | exenta | Canal de avisos en vivo. La pantalla de cocina no tiene sesión y lo necesita para enterarse de una ronda nueva. Emite avisos de que algo cambió, con a lo sumo identificadores y cantidades de stock; **nunca dinero, clientes ni ventas** (regla para los planes 2 y 3). |
 | Todo lo demás bajo `/api/` | exige | exige | Por omisión. |
 
 Fuera del guardia quedan los archivos de las pantallas (`/`, `/admin`, `/mesero`, `/caja`, `/cocina`, JS y CSS) y `/fotos/`. Las pantallas tienen que poder cargar para mostrar "aparato no autorizado"; las fotos son imágenes del menú, sin valor que proteger, y dejarlas libres evita complicar el `<img>` de cada producto.
@@ -77,7 +77,7 @@ Cada ruta de la API declara los roles que la admiten. Regla general: rutas bajo 
 - El PIN se guarda con `scrypt` de `node:crypto` (sal aleatoria por usuario), nunca en claro. Se eligió `scrypt` por ser parte de Node: no añade dependencias al paquete de Windows.
 - El PIN son exactamente 4 dígitos (`0000` a `9999`). No hay requisito de unicidad entre usuarios.
 - El PIN **nunca** viaja de vuelta al navegador, ni en claro ni cifrado, en ninguna respuesta de ninguna ruta.
-- **Cambiarle el PIN a alguien cierra sus sesiones abiertas al instante** (decisión de Dave, 2026-09-17), en la misma transacción que escribe el PIN nuevo: no puede quedar el PIN cambiado con la sesión vieja viva. Es lo que se espera al cambiar una clave, y permite cortar de verdad cuando se sospecha que otra persona la conoce. Desactivar a un usuario también le corta el acceso, en su siguiente petición.
+- **Cambiarle el PIN a alguien cierra sus sesiones abiertas al instante** (decisión de Dave, 2026-09-17), en la misma transacción que escribe el PIN nuevo: no puede quedar el PIN cambiado con la sesión vieja viva. Es lo que se espera al cambiar una clave, y permite cortar de verdad cuando se sospecha que otra persona la conoce. **Desactivar a un usuario y cambiarle el rol también cierran sus sesiones al instante**, en la misma transacción (2026-09-18: desactivar sin cerrar dejaba una sesión que revivía al reactivarlo; cambiar el rol conservaba el plazo del rol viejo). Y entrar con PIN abre la sesión en una transacción que relee al usuario con `FOR SHARE` y rechaza si ya no está activo o si su PIN cambió, para que una desactivación o un cambio de PIN simultáneos no dejen una sesión viva.
 
 ### 4.2 dispositivo
 
@@ -130,7 +130,7 @@ Cada ruta de la API declara los roles que la admiten. Regla general: rutas bajo 
 1. La pantalla pide `GET /api/sesion/usuarios`: nombres y roles de los usuarios activos **con PIN puesto**.
 2. Muestra la lista. El aparato recuerda quién entró la última vez y lo deja preseleccionado.
 3. Se elige el nombre y se escriben 4 dígitos en un teclado numérico grande.
-4. `POST /api/sesion` con usuario y PIN. Si es correcto devuelve el token de sesión; si no, un error genérico "PIN incorrecto" que nunca dice si el usuario existe.
+4. `POST /api/sesion` con usuario y PIN. Si es correcto abre la sesión (el token va solo en la cookie `HttpOnly`; el cuerpo es `{ usuario, expira_en }`); si no, un error genérico "PIN incorrecto" que nunca dice si el usuario existe.
 5. A los 5 fallos, ese dispositivo queda bloqueado 5 minutos: responde 429 "Demasiados intentos. Espera 5 minutos."
 
 ### 5.4 Bloqueo y salida
@@ -208,7 +208,8 @@ Continúan la numeración de la spec principal, que llega a la regla 20.
 | Rol insuficiente | 403 | "No tienes permiso para esta pantalla" |
 | PIN incorrecto | 401 | "PIN incorrecto", sin decir si el usuario existe |
 | Dispositivo bloqueado | 429 | "Demasiados intentos. Espera 5 minutos." |
-| Instalación ya hecha o desde la red | 409 / 403 | "El sistema ya está configurado" |
+| Instalación ya hecha | 409 | "El sistema ya está configurado" |
+| Instalación desde la red | 403 `solo_local` | "Esta operación solo se puede hacer desde la PC de caja" |
 
 ## 10. Pruebas
 
@@ -216,14 +217,14 @@ Con PostgreSQL real, como el resto del proyecto.
 
 - **Barrido de rutas:** una prueba recorre **todas** las rutas registradas en Fastify y verifica que ninguna responde sin dispositivo y sin sesión, salvo la lista blanca de 3.1, que está escrita en la propia prueba. Es la prueba que evita que una ruta futura nazca abierta.
 - Cada rol contra cada grupo de rutas: lo que le toca responde, lo que no, 403.
-- Revocar un dispositivo corta el acceso en la petición siguiente.
+- Revocar un dispositivo corta el acceso en la petición siguiente y cierra sus sesiones.
 - Expiración por inactividad: caja a los 30 minutos, admin a los 15, mesero no expira.
 - Cerrar jornada cierra las sesiones de mesero y no las de caja ni admin.
 - 5 intentos fallidos bloquean 5 minutos; el sexto responde 429 aunque el PIN sea correcto.
 - Dos usuarios con el mismo PIN entran cada uno como sí mismo.
 - El último admin activo no se puede desactivar ni borrar.
 - `POST /api/instalacion` desde una IP que no es local responde 403; repetida responde 409.
-- Ninguna respuesta de ninguna ruta contiene `pin` ni `pin_hash`.
+- Ninguna respuesta de ninguna ruta contiene un campo `pin` ni `pin_hash` (el campo `tiene_pin`, que solo dice si hay PIN, es legítimo).
 - El canal de eventos responde con dispositivo autorizado y sin sesión, y no responde sin dispositivo.
 - Cambiar el precio de un producto deja exactamente un registro; editar el producto sin tocar el precio no deja ninguno.
 - Tipos antes que rangos en todos los cuerpos nuevos (`exigirObjeto`, `exigirUuid` de `errores.ts`), como manda el aprendizaje del 2026-09-17.
@@ -254,3 +255,5 @@ Contraseñas largas o usuarios con correo, permisos a medida por pantalla, que c
 **2026-09-18, revisión de la Task 5.** La PC de caja se reconocía solo por su IP de bucle local. La revisión demostró en vivo que una petición desde `127.0.0.1` con `Host: evil.com` instalaba un administrador: una página maliciosa abierta en el navegador de la PC de caja, con un dominio que apunte a `127.0.0.1` (*rebinding* de DNS), podía crear su propio admin mientras el sistema estaba sin instalar y, ya instalado, saltarse la capa 1. Desde entonces "la PC de caja" exige además que la cabecera `Host` sea un nombre local (5.2.6, regla 31).
 
 **2026-09-18, antes de la Task 7.** Al revisar las pantallas antes de construirlas se vio que las recargas automáticas (la lista de dispositivos cada 30 segundos y las recargas que dispara cada aviso en vivo) renovaban la sesión en cada petición, así que una pantalla de admin o de caja abierta nunca vencía aunque nadie la tocara, contra lo aprobado. Desde entonces las peticiones automáticas llevan `X-Automatica: 1` y no renuevan la sesión (4.3).
+
+**2026-09-18, revisión final del plan de seguridad.** (1) Carrera entre entrar con PIN y desactivar o cambiar el PIN: la sesión se insertaba después de verificar el PIN, fuera de toda transacción, y podía quedar viva tras la desactivación o abrirse con el PIN viejo. Se cierra releyendo al usuario con `FOR SHARE` dentro de la transacción que abre la sesión (no `FOR KEY SHARE`, que no espera a un `UPDATE` normal). (2) Cambiar el rol cierra las sesiones. (3) `GET /api/estado`, que no exige sesión, devuelve de la jornada solo `{ id, abierta_en }`, sin dinero. (4) El canal de eventos puede llevar identificadores y stock, nunca dinero, clientes ni ventas. Commit `7585f3a`.

@@ -4015,13 +4015,26 @@ Los planes `2026-09-15-plan-2-operacion.md` y `2026-09-15-plan-3-complementos.md
 7. **La pantalla de cocina** (plan 3, Task 1) va dentro de `<Acceso rolesPermitidos={null}>` (ya está así en `main.tsx`); no muestra precios ni dinero, como manda la regla 22.
 8. **Plan 4, Task 3 (lanzador de Windows):** ofrecer "Restablecer PIN de administrador", que ejecuta `npm run restablecer-pin` (o su equivalente empaquetado). Plan 4, manual: la recomendación de red de la spec sección 11.
 
+9. **Peticiones automáticas:** toda recarga por intervalo o por evento en las pantallas de mesero y caja va con `api.get(url, { automatica: true })` (cabecera `X-Automatica: 1`), que no renueva la sesión; las que dispara un toque, sin marcar. `api.post/patch/del` nunca son automáticas.
+10. **`/api/estado` solo con `{ id, abierta_en }` de la jornada** cuando el plan 2 mueva esa consulta al módulo de jornada; el fondo y los totales van por `GET /api/jornadas/actual/resumen` (`CAJA`).
+11. **Eventos sin dinero, clientes ni ventas:** `mesa { pedido_id, numero_mesa }` y `stock` están bien; nada de totales ni nombres de cliente en `emitir()`, porque `/api/eventos` no exige sesión y un aparato revocado sigue conectado hasta reconectar.
+12. **Atribución tras desbloquear:** si otra persona desbloquea la capa de PIN, `usuarioDe(req)` de la petición reintentada es la de quien desbloqueó. Decidir si `pedido.usuario_id` pasa a `NOT NULL` (con sesión obligatoria ya no hay motivo para nulo, salvo los pedidos que nacen de un encargo).
+13. **Cerrar jornada corta las sesiones de mesero:** la pantalla de mesero recibe 401 y pone el teclado encima; al desbloquear, la petición reintentada falla con 409 "No hay caja abierta". La pantalla debe mostrarlo bien.
+14. **403 `sin_permiso` dentro de una pantalla:** en la PC de caja, caja y admin comparten una sola cookie de sesión por navegador; entrar como caja en `/caja` deja `/admin` recibiendo 403. Registrar en `Acceso.tsx` un gancho que ante `sin_permiso` pase a la fase `sin-permiso`, y explicarle a Dave en `docs/fases/3-operacion.md` que en la PC de caja conviene entrar como administrador si tendrá `/caja` y `/admin` abiertos a la vez.
+15. **El ticket** (`GET /api/cuentas/:id/ticket`) declara `config.acceso: CAJA` (el plan 2 no lo declara: el servidor no arrancaría) y se abre con `window.open` o `target=_blank`, que manda la cookie `SameSite=Strict` por ser del mismo sitio.
+16. **Cerrar sesiones solo con `cerrarSesionesDeRol`** (y los ayudantes existentes), sin repetir el `UPDATE sesion` en módulos nuevos.
+17. **Pruebas remotas:** `crearAppDePrueba()` habla como admin desde la PC de caja con `Host: localhost:80`; para "remoto" hace falta `remoteAddress: IP_REMOTA` **y** cookie de aparato; para probar que algo no es local, cambiar `host`.
+18. **Plan 3:** cerrar las conexiones de `/api/eventos` de un aparato al revocarlo (guardar la respuesta por `req.dispositivoActual.id` en `eventos.ts`); hoy el aparato revocado sigue recibiendo avisos hasta reconectar.
+19. **Plan 4:** la opción del lanzador "Restablecer PIN de administrador" oculta lo que se teclea; la PC de caja se abre siempre por `localhost` o `127.0.0.1`, nunca por el nombre de la máquina ni su IP de red (si no, deja de ser "la PC de caja"); limpieza periódica de aparatos revocados y de `intento_fallido`; `tests/restablecer-pin.test.ts` usa `node_modules/.bin/tsx`, que en Windows es `tsx.cmd`.
+20. **Cifrado:** la fase 2 sigue con el plan de cifrado de la red local (`docs/superpowers/specs/2026-09-18-cifrado-red-local-design.md`); las cookies pasarán a llevar `Secure` y el servidor escuchará por HTTPS. Los planes 2 y 3 se escriben y ejecutan sobre eso.
+
 ## Decisiones del plan (no están en la spec; el revisor las conoce y no las cuenta como desvío)
 
 - **Tokens en cookies `HttpOnly`** y no en cabeceras: `EventSource` (`/api/eventos`) no puede mandar cabeceras propias y esa ruta exige dispositivo. Una sola forma de transporte para todo. `SameSite=Strict`, sin `Secure` (HTTP en red local).
 - **Sesión atada al aparato** (`sesion.dispositivo_id` debe coincidir con la cookie de dispositivo, o ser nula y venir de 127.0.0.1). No está en la spec; cuesta tres líneas y hace inútil copiar una cookie de sesión a otro aparato.
 - **`/api/estado` deja de devolver la lista de meseros**: la lista de nombres para entrar es `GET /api/sesion/usuarios`, y `/api/estado` es una ruta sin sesión (cocina).
 - **Rutas bajo `/api/` sin declaración: el arranque falla** (`onRoute`), y si aun así una URL sin ruta llega al guardia (404) se trata como admin: 403/401 antes que 404.
-- **Un usuario desactivado pierde sus sesiones en la siguiente petición** (`buscarSesionViva` exige `activo`).
+- **Un usuario desactivado, o al que se le cambia el PIN o el rol, pierde sus sesiones al instante**, en la misma transacción (corregido durante la ejecución; ver "Correcciones hechas durante la ejecución").
 - **Tope de 20 solicitudes de aparato pendientes a la vez** (409): evita que alguien en la WiFi llene la lista de admin o agote los códigos.
 - **Bloqueo de la PC de caja por intentos fallidos en memoria del proceso**, con los intentos registrados en `intento_fallido` con `dispositivo_id` nulo (ver Huecos, punto 2).
 

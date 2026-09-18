@@ -18,8 +18,8 @@ Actualizado: 2026-09-18 (fase 2 en construcción, Tasks 1 a 6 cerradas)
 - Dave señaló que no cifrar era un fallo grave con la WiFi compartida con los clientes (PIN y cookies capturables con Wireshark). Diseño aprobado: `docs/superpowers/specs/2026-09-18-cifrado-red-local-design.md`, que reemplaza la sección 11 de la spec de seguridad. HTTPS con un sello propio de cada local; puerta de inicio sin cifrar solo para instalar el sello; cookies con `Secure`.
 - Orden: primero se cierra el plan de seguridad (revisión final y sus arreglos); después se escribe y ejecuta un plan corto de cifrado, dentro de la fase 2 y antes del plan 2. Dave prueba la fase 2 una sola vez, al final, ya cifrada.
 
-## Pendiente técnico de la fase 2, obligatorio antes de cerrar el plan
-- **Carrera entre entrar con PIN y desactivar al usuario** (encontrada el 2026-09-18 en la re-revisión de la Task 4). `iniciarSesion` en `src/servidor/modulos/sesiones.ts` lee si el usuario está activo sin bloquear la fila, verifica el PIN y luego abre la sesión; si en ese instante el administrador lo desactiva, la sesión nueva queda viva y revive si lo reactivan. Ventana de milisegundos, reproducida en vivo. Arreglo: abrir la sesión en una transacción que primero haga `SELECT activo FROM usuario WHERE id = $1 FOR KEY SHARE` y rechace si es falso, con una prueba que fuerce la carrera y se vea fallar. Va en la ola de arreglos de la revisión final del plan.
+## Pendiente técnico de la fase 2 (resuelto)
+- **Carrera entre entrar con PIN y desactivar o cambiar el PIN**: resuelta el 2026-09-18 en `7585f3a`. La forma anotada aquí antes (`FOR KEY SHARE`) no la cerraba: la revisión final midió que no espera a un `UPDATE` normal. Quedó con `FOR SHARE` y recomprobando el PIN, con pruebas vistas fallar.
 
 ## Decisiones técnicas tomadas durante la ejecución, por si hay que revisarlas
 - **`npm run build` no compila el servidor con `tsc` (2026-09-17, Tarea 6):** `tsc -p tsconfig.servidor.json` falla porque `module: NodeNext` exige extensión `.js` en los imports relativos del código servidor, que no la llevan. `build` quedó en `vite build` (solo la web) y `start` en `tsx src/servidor/index.ts`. Nadie usa la salida compilada de `dist/servidor`: el desarrollo corre con `tsx` y la entrega del plan 4 empaqueta con `esbuild`. Si el plan 4 decide compilar el servidor con `tsc` en vez de `esbuild`, hay que añadir `.js` a todos los imports relativos primero.
@@ -64,7 +64,7 @@ Ninguno bloquea el trabajo. Todos tienen una respuesta por defecto ya construida
 ## Cómo probarlo hoy
 1. `open -a OrbStack`, esperar, y `docker start cafeteria-pg`.
 2. En el proyecto: `npm run build` y luego `npm run dev`.
-3. Abrir `http://127.0.0.1:3000/admin`. Funcionan configuración, meseros y menú con stock y fotos. `/mesero` y `/caja` dirán que están en construcción hasta el plan 2.
+3. Abrir `http://localhost:3000/admin` (en la PC de caja, siempre `localhost` o `127.0.0.1`). La base de desarrollo tiene el administrador "Dave" con PIN 1357. Funcionan configuración, usuarios con PIN, dispositivos y menú con stock, fotos e historial de precios. `/mesero` y `/caja` dirán que están en construcción hasta el plan 2. **Esto cambia con el cifrado:** cuando esté, se abrirá por HTTPS y los pasos para Dave estarán en `docs/fases/2-seguridad-de-acceso.md`.
 
 ## Pasos posteriores, en orden
 1. Ejecutar plan 2 (modelos por tarea en su encabezado: Fable en tareas 3 y 4, Sonnet en el resto). Terminado cuando el día completo de la Task 8 se verificó a mano.
