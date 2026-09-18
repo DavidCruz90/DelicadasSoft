@@ -66,8 +66,11 @@ export function TecladoPin({ capa, alEntrar }: { capa: boolean; alEntrar: (u: Us
     const alTeclear = (e: KeyboardEvent) => {
       if (enviando || !elegido) return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
-      // Dentro del selector de nombre, las teclas son suyas.
-      if ((e.target as HTMLElement | null)?.tagName === 'SELECT') return;
+      // También con el foco en el selector de nombre (queda ahí tras elegir
+      // con el ratón o llegar con Tab): los dígitos, Retroceso y Escape son
+      // siempre del PIN, y preventDefault evita que el <select> use el dígito
+      // para saltar a un nombre (búsqueda por letra). Letras, flechas, Enter
+      // y Tab no se tocan: siguen sirviendo para elegir el nombre.
       if (/^\d$/.test(e.key)) tecla(e.key);
       else if (e.key === 'Backspace') tecla('borrar');
       else if (e.key === 'Escape') tecla('limpiar');
