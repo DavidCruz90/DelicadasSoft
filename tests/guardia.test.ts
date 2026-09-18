@@ -140,8 +140,9 @@ test('accesoExigido decide por la declaración de la ruta elegida, no por el tex
 
 // Forma absoluta por un socket real: app.inject la normaliza, así que se
 // levanta la app en la IP de red de esta máquina (una conexión a esa IP no
-// es local y el guardia aplica la capa 1). Sin interfaz de red, la prueba
-// se salta y lo dice; la de accesoExigido cubre la lógica igual.
+// es local y el guardia aplica la capa 1). Sin interfaz de red la prueba
+// FALLA con un mensaje claro: una prueba de seguridad no puede pasar
+// saltándose.
 function ipDeRed(): string | undefined {
   for (const lista of Object.values(networkInterfaces())) {
     for (const i of lista ?? []) if (i.family === 'IPv4' && !i.internal) return i.address;
@@ -161,9 +162,10 @@ function pedir(host: string, port: number, path: string) {
   });
 }
 
-test('una petición en forma absoluta (GET http://x/api/estado) desde la red responde 403', async (t) => {
+test('una petición en forma absoluta (GET http://x/api/estado) desde la red responde 403', async () => {
   const ip = ipDeRed();
-  if (!ip) { t.skip(); return; }
+  expect(ip, 'esta prueba necesita una interfaz de red con IPv4').toBeDefined();
+  if (!ip) return; // inalcanzable: el expect de arriba ya falló
   const appTemp = await crearApp({ db: ctx.db });
   await appTemp.listen({ port: 0, host: ip });
   const direccion = appTemp.server.address();

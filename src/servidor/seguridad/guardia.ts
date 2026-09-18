@@ -35,11 +35,14 @@ export function exigirLocal(req: FastifyRequest) {
   if (!esLocal(req)) throw new ErrorAcceso(403, 'Esta operación solo se puede hacer desde la PC de caja', 'solo_local');
 }
 
-// Normaliza el texto crudo de la URL como lo hace el router (find-my-way)
-// antes de elegir la ruta: quita esquema y autoridad de una petición en
-// forma absoluta (GET http://x/api/estado), quita la query y decodifica el
-// porcentaje (%61 → a). Solo sirve para las peticiones que NO encontraron
-// ruta; una codificación rota se trata como API (ante la duda, cerrado).
+// Normaliza el texto crudo de la URL de forma igual o más restrictiva que
+// el router (find-my-way), a propósito: quita esquema y autoridad de una
+// petición en forma absoluta (GET http://x/api/estado, con cualquier
+// esquema), quita la query y decodifica todo porcentaje (%61 → a, también
+// %2F). El router hace menos que esto; acercar esta función al router
+// abriría un hueco, porque todo lo que aquí se trate como "no API" queda
+// sin guardia. Solo sirve para las peticiones que NO encontraron ruta; una
+// codificación rota se trata como API (ante la duda, cerrado).
 function pareceApi(url: string): boolean {
   let ruta = url.split('?')[0].replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '');
   try {
