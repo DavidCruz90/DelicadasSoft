@@ -7,6 +7,8 @@ import { categoria, producto, movimientoStock, jornada } from '../db/schema';
 import { ENTERO_MAXIMO, ErrorNegocio, ErrorTamano, ErrorValidacion, NoEncontrado, exigirBooleano, exigirEntero, exigirMonto, exigirObjeto, exigirObjetoOpcional, exigirTexto, exigirUuid } from '../errores';
 import { config } from '../config';
 import { ADMIN, SOLO_DISPOSITIVO } from '../seguridad/acceso';
+import { registrarCambioPrecio } from './precios';
+import { usuarioDe } from '../seguridad/guardia';
 
 export type Categoria = typeof categoria.$inferSelect;
 export type Producto = typeof producto.$inferSelect;
@@ -156,7 +158,7 @@ export async function crearProducto(db: Db, datos: DatosProducto) {
   });
 }
 
-export async function editarProducto(db: Db, id: string, datos: DatosProducto) {
+export async function editarProducto(db: Db, id: string, datos: DatosProducto, usuarioId: string) {
   exigirUuid(id, 'El identificador del producto no es válido');
 
   // La lectura del producto existente (para decidir la guarda de abajo y
@@ -187,6 +189,13 @@ export async function editarProducto(db: Db, id: string, datos: DatosProducto) {
     if (Object.keys(cambios).length === 0) return existe;
 
     const [p] = await tx.update(producto).set(cambios).where(eq(producto.id, id)).returning();
+
+    // Regla 30: solo cuando el precio cambia de verdad. Ambos lados vienen
+    // normalizados a texto con dos decimales (numeric(10,2) de la base y
+    // exigirMonto), así que la comparación de textos es exacta.
+    if (cambios.precio !== undefined && cambios.precio !== existe.precio) {
+      await registrarCambioPrecio(tx, { productoId: id, precioAnterior: existe.precio, precioNuevo: cambios.precio, usuarioId });
+    }
 
     const activandoControl = datos.controla_stock === true && !existe.controla_stock;
     const desactivandoControl = datos.controla_stock === false && existe.controla_stock;
@@ -315,7 +324,7 @@ export function rutasCatalogo(app: FastifyInstance) {
   });
   app.patch<{ Params: { id: string } }>('/api/admin/productos/:id', { config: { acceso: ADMIN } }, async (req) => {
     const datos = exigirObjetoOpcional(req.body);
-    const p = await editarProducto(app.db, req.params.id, datos);
+    const p = await editarProducto(app.db, req.params.id, datos, usuarioDe(req).id);
     app.bus.emitir('catalogo');
     return p;
   });

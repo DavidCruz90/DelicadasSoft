@@ -14,6 +14,7 @@ import { rutasCatalogo } from './modulos/catalogo';
 import { rutasDispositivos } from './modulos/dispositivos';
 import { rutasSesion } from './modulos/sesiones';
 import { rutasInstalacion } from './modulos/instalacion';
+import { rutasPrecios } from './modulos/precios';
 import { registrarGuardia } from './seguridad/guardia';
 import { SOLO_DISPOSITIVO } from './seguridad/acceso';
 import { jornada } from './db/schema';
@@ -104,6 +105,7 @@ export async function crearApp({ db }: { db: Db }) {
   rutasDispositivos(app);
   rutasSesion(app);
   rutasInstalacion(app);
+  rutasPrecios(app);
 
   return app;
 }
