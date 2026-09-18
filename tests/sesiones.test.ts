@@ -240,6 +240,63 @@ test('desactivar a un usuario cierra sus sesiones al instante y reactivarlo no l
   expect(filaOtro.cerrada_en).toBeNull();
 });
 
+test('una petición automática (X-Automatica: 1) se valida igual pero no renueva la sesión; cualquier otro valor o sin cabecera sí renueva; vencida recibe 401 igual', async () => {
+  const cookieAdmin = cookieSesionDe(await entrar(adminRemoto.id, '3333'));
+  const automatica = { ...conSesion(cookieAdmin), headers: { ...conSesion(cookieAdmin).headers, 'x-automatica': '1' } };
+  // El cliente postgres devuelve los timestamps como texto: se comparan en milisegundos.
+  const ms = (v: unknown) => new Date(v as string).getTime();
+  const leerFila = async () => {
+    const [f] = await ctx.sql`SELECT expira_en, ultimo_uso_en FROM sesion WHERE token_hash = ${huellaDe(cookieAdmin)}`;
+    return { expira_en: ms(f.expira_en), ultimo_uso_en: ms(f.ultimo_uso_en) };
+  };
+
+  // Estado conocido: le quedan 60 s y el último uso fue hace 14 min.
+  await ctx.sql`UPDATE sesion SET expira_en = now() + interval '1 minute', ultimo_uso_en = now() - interval '14 minutes' WHERE token_hash = ${huellaDe(cookieAdmin)}`;
+  const antes = await leerFila();
+
+  // Automática: responde 200 con el usuario (dispositivo, sesión y rol se
+  // validaron) pero expira_en y ultimo_uso_en quedan exactamente igual.
+  const auto = await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...automatica });
+  expect(auto.statusCode).toBe(200);
+  expect(auto.json().usuario.id).toBe(adminRemoto.id);
+  const trasAuto = await leerFila();
+  expect(trasAuto.expira_en).toBe(antes.expira_en);
+  expect(trasAuto.ultimo_uso_en).toBe(antes.ultimo_uso_en);
+  // La respuesta tampoco anuncia una expiración renovada.
+  expect(ms(auto.json().expira_en)).toBe(antes.expira_en);
+
+  // También automática sobre una ruta de admin con rol: igual, sin renovar.
+  const autoAdmin = await ctx.app.inject({ method: 'GET', url: '/api/admin/dispositivos', ...automatica });
+  expect(autoAdmin.statusCode).toBe(200);
+  expect((await leerFila()).expira_en).toBe(antes.expira_en);
+
+  // Otro valor de la cabecera: se trata como manual y renueva.
+  const otroValor = { ...conSesion(cookieAdmin), headers: { ...conSesion(cookieAdmin).headers, 'x-automatica': 'si' } };
+  expect((await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...otroValor })).statusCode).toBe(200);
+  const trasOtro = await leerFila();
+  expect(trasOtro.expira_en - Date.now()).toBeGreaterThan(14 * 60000);
+  expect(trasOtro.ultimo_uso_en).toBeGreaterThan(antes.ultimo_uso_en);
+
+  // Sin cabecera: renueva (comportamiento de siempre).
+  await ctx.sql`UPDATE sesion SET expira_en = now() + interval '1 minute', ultimo_uso_en = now() - interval '14 minutes' WHERE token_hash = ${huellaDe(cookieAdmin)}`;
+  expect((await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...conSesion(cookieAdmin) })).statusCode).toBe(200);
+  expect((await leerFila()).expira_en - Date.now()).toBeGreaterThan(14 * 60000);
+
+  // Vencida: la automática recibe 401 igual que cualquiera, y no la revive.
+  await ctx.sql`UPDATE sesion SET expira_en = now() - interval '1 second' WHERE token_hash = ${huellaDe(cookieAdmin)}`;
+  const vencida = await ctx.app.inject({ method: 'GET', url: '/api/sesion', ...automatica });
+  expect(vencida.statusCode).toBe(401);
+  expect(vencida.json().codigo).toBe('sin_sesion');
+  const [sigueVencida] = await ctx.sql`SELECT expira_en < now() AS vencida FROM sesion WHERE token_hash = ${huellaDe(cookieAdmin)}`;
+  expect(sigueVencida.vencida).toBe(true);
+  // Y una automática sin sesión, o con rol insuficiente, se rechaza como siempre.
+  const sinSesion = await ctx.app.inject({ method: 'GET', url: '/api/sesion', remoteAddress: IP_REMOTA, headers: { cookie: aparato.cookie, 'x-automatica': '1' } });
+  expect(sinSesion.statusCode).toBe(401);
+  const cookieMesero = cookieSesionDe(await entrar(mesero.id, '1111'));
+  const meseroAuto = await ctx.app.inject({ method: 'GET', url: '/api/admin/dispositivos', ...conSesion(cookieMesero), headers: { ...conSesion(cookieMesero).headers, 'x-automatica': '1' } });
+  expect(meseroAuto.statusCode).toBe(403);
+});
+
 test('salir cierra la sesión, borra la cookie y la siguiente petición responde 401', async () => {
   const cookie = cookieSesionDe(await entrar(caja.id, '2222'));
   const salir = await ctx.app.inject({ method: 'DELETE', url: '/api/sesion', ...conSesion(cookie) });

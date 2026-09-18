@@ -162,7 +162,13 @@ export function registrarGuardia(app: FastifyInstance) {
       throw new ErrorAcceso(403, 'No tienes permiso para esta pantalla', 'sin_permiso');
     }
 
-    req.sesionActual = await renovarSesion(app.db, viva.sesion, viva.usuario.rol);
+    // Spec 4.3: solo lo que inicia la persona cuenta como uso. Una recarga
+    // automática (intervalo o aviso en vivo) llega con X-Automatica: 1, se
+    // validó igual que cualquier otra, pero no renueva expira_en ni
+    // ultimo_uso_en; así una pantalla abierta sin que nadie la toque vence
+    // en su plazo. Cualquier otro valor, o sin cabecera, renueva.
+    const automatica = req.headers['x-automatica'] === '1';
+    req.sesionActual = automatica ? viva.sesion : await renovarSesion(app.db, viva.sesion, viva.usuario.rol);
     req.usuarioActual = viva.usuario;
   });
 }
