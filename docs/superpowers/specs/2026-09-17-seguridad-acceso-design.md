@@ -228,13 +228,9 @@ Con PostgreSQL real, como el resto del proyecto.
 - Cambiar el precio de un producto deja exactamente un registro; editar el producto sin tocar el precio no deja ninguno.
 - Tipos antes que rangos en todos los cuerpos nuevos (`exigirObjeto`, `exigirUuid` de `errores.ts`), como manda el aprendizaje del 2026-09-17.
 
-## 11. Recomendación de instalación, fuera del software
+## 11. Cifrado de la red local (reemplazada el 2026-09-18)
 
-La protección más barata y más efectiva no se programa: **poner el POS en una red WiFi distinta de la de los clientes**, usando la "red de invitados" que casi todo router tiene.
-
-Motivo concreto: dentro de una red local el tráfico entre el navegador y el servidor va sin cifrar, así que alguien con conocimientos y conectado a la misma red podría llegar a interceptar un PIN en tránsito. Las tres capas de este diseño lo hacen difícil; una red aparte lo hace innecesario. Cifrar el tráfico (HTTPS) en una red local sin dominio propio obliga a certificados que el navegador rechaza con avisos, y para este tamaño de local no compensa.
-
-Debe quedar escrito en el manual del plan 4.
+Esta sección decía que no se cifraba el tráfico y recomendaba una WiFi separada. Dave señaló el 2026-09-18 que con la WiFi compartida con los clientes eso era un fallo grave: con Wireshark cualquiera captura el PIN y las cookies en claro. **Reemplazada por `2026-09-18-cifrado-red-local-design.md`:** todo el tráfico va por HTTPS con un sello propio de cada local, y las cookies llevan `Secure` (lo que corrige la restricción "sin `Secure`" de este documento). Poner el POS en una WiFi separada sigue siendo una buena práctica adicional, pero ya no es la protección de la que depende la seguridad.
 
 ## 12. Cambios a la spec principal
 
